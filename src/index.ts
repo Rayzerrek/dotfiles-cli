@@ -79,13 +79,13 @@ const configs: DotfileConfig[] = [
 // Verify if a directory junction is set up correctly
 function checkJunction(config: DotfileConfig): { linked: boolean; message: string } {
   if (!existsSync(config.systemPath)) {
-    return { linked: false, message: "Folder nie istnieje w systemie" };
+    return { linked: false, message: "Directory does not exist in system" };
   }
 
   try {
     const stat = lstatSync(config.systemPath);
     if (!stat.isSymbolicLink()) {
-      return { linked: false, message: "Istnieje fizycznie, ale nie jest skrótem (Junction)" };
+      return { linked: false, message: "Physical directory exists, but is not a junction" };
     }
 
     const target = readlinkSync(config.systemPath);
@@ -93,133 +93,133 @@ function checkJunction(config: DotfileConfig): { linked: boolean; message: strin
     const normRepo = config.repoPath.replace(/\//g, "\\").toLowerCase();
 
     if (normTarget === normRepo || normTarget.endsWith(normRepo)) {
-      return { linked: true, message: `Połączony z: ${target}` };
+      return { linked: true, message: "Correct" };
     } else {
-      return { linked: false, message: `Wskazuje na niepoprawny cel: ${target}` };
+      return { linked: false, message: `Points to incorrect target: ${target}` };
     }
   } catch (err: unknown) {
     const errorMsg = err instanceof Error ? err.message : String(err);
-    return { linked: false, message: `Błąd odczytu powiązania: ${errorMsg}` };
+    return { linked: false, message: `Error reading link: ${errorMsg}` };
   }
 }
 
 function handleStatus(): void {
-  console.log(`\n${colors.bold}--- Status powiązań systemowych (Junctions) ---${colors.reset}`);
+  console.log(`\n${colors.bold}--- System Junctions Status ---${colors.reset}`);
   
   let allLinked = true;
   for (const config of configs) {
     const result = checkJunction(config);
     if (result.linked) {
-      console.log(`  ${colors.green}[✔]${colors.reset} ${colors.bold}${config.name}:${colors.reset} Poprawnie zlinkowany`);
+      console.log(`  ${colors.green}[✔ ]${colors.reset} ${colors.bold}${config.name}:${colors.reset} ${result.message}`);
     } else {
       allLinked = false;
-      console.log(`  ${colors.red}[✘]${colors.reset} ${colors.bold}${config.name}:${colors.reset} ${colors.yellow}${result.message}${colors.reset}`);
+      console.log(`  ${colors.red}[✘ ]${colors.reset} ${colors.bold}${config.name}:${colors.reset} ${colors.yellow}${result.message}${colors.reset}`);
     }
   }
 
-  console.log(`\n${colors.bold}--- Status repozytorium Git (dotfiles) ---${colors.reset}`);
+  console.log(`\n${colors.bold}--- Git Repository Status (dotfiles) ---${colors.reset}`);
   if (!existsSync(DOTFILES_DIR)) {
-    logError(`Folder repozytorium dotfiles nie istnieje pod ścieżką: ${DOTFILES_DIR}`);
+    logError(`Dotfiles repository directory does not exist at: ${DOTFILES_DIR}`);
     return;
   }
 
   const gitStatus = runCmd(["git", "status", "-s"], DOTFILES_DIR);
   if (gitStatus.success) {
     if (gitStatus.stdout) {
-      console.log(`${colors.yellow}Wykryto niezatwierdzone zmiany w repozytorium:${colors.reset}`);
+      console.log(`${colors.yellow}Uncommitted changes detected in repository:${colors.reset}`);
       console.log(gitStatus.stdout.split("\n").map(line => `  ${line}`).join("\n"));
     } else {
-      logSuccess("Repozytorium dotfiles jest czyste (brak zmian do zatwierdzenia).");
+      logSuccess("Dotfiles repository is clean (nothing to commit).");
     }
   } else {
-    logError(`Nie udało się uruchomić git status: ${gitStatus.stderr}`);
+    logError(`Failed to run git status: ${gitStatus.stderr}`);
   }
 }
 
 function handleLink(): void {
-  console.log(`\n${colors.bold}--- Odtwarzanie powiązań dotfiles ---${colors.reset}`);
+  console.log(`\n${colors.bold}--- Restoring Dotfiles Junctions ---${colors.reset}`);
 
   for (const config of configs) {
-    console.log(`\nPrzetwarzanie ${colors.bold}${config.name}${colors.reset}...`);
+    console.log(`\nProcessing ${colors.bold}${config.name}${colors.reset}...`);
     
-    // 1. Sprawdź czy plik w repozytorium dotfiles istnieje
+    // 1. Verify source folder exists in the dotfiles repo
     if (!existsSync(config.repoPath)) {
-      logError(`Folder źródłowy w repozytorium nie istnieje: ${config.repoPath}. Pomijam.`);
+      logError(`Source directory in repository does not exist: ${config.repoPath}. Skipping.`);
       continue;
     }
 
     const check = checkJunction(config);
     if (check.linked) {
-      logSuccess(`Powiązanie dla ${config.name} jest już prawidłowe. Pomijam.`);
+      logSuccess(`Junction link for ${config.name} is already correct. Skipping.`);
       continue;
     }
 
-    // 2. Jeśli istnieje i jest fizycznym folderem lub uszkodzonym linkiem
+    // 2. If directory exists physically but is not a link, back it up
     if (existsSync(config.systemPath)) {
       const stat = lstatSync(config.systemPath);
       if (!stat.isSymbolicLink()) {
         const backupPath = `${config.systemPath}_backup_${Date.now()}`;
-        logWarning(`Wykryto fizyczny folder w ${config.systemPath}. Tworzę kopię zapasową pod nazwą: ${backupPath}...`);
+        logWarning(`Physical folder detected at ${config.systemPath}. Creating backup at: ${backupPath}...`);
         
-        // Zmień nazwę na kopię bezpieczeństwa
+        // Rename the physical folder
         const backupRes = runCmd(["powershell", "-Command", `Move-Item -Path '${config.systemPath}' -Destination '${backupPath}'`]);
         if (!backupRes.success) {
-          logError(`Nie udało się utworzyć kopii zapasowej: ${backupRes.stderr}`);
+          logError(`Failed to create backup: ${backupRes.stderr}`);
           continue;
         }
       } else {
-        logInfo(`Usuwam uszkodzone lub niepoprawne powiązanie w ${config.systemPath}...`);
+        logInfo(`Removing invalid or incorrect link at ${config.systemPath}...`);
         try {
           rmSync(config.systemPath, { recursive: true, force: true });
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          logError(`Nie udało się usunąć starego linku: ${errMsg}`);
+          logError(`Failed to remove old link: ${errMsg}`);
           continue;
         }
       }
     }
 
-    // 3. Utwórz nowe Junction
-    logInfo(`Tworzenie skrótu Junction z '${config.systemPath}' do '${config.repoPath}'...`);
+    // 3. Create the new Junction link
+    logInfo(`Creating Junction link from '${config.systemPath}' to '${config.repoPath}'...`);
     const linkRes = runCmd(["cmd", "/c", `mklink /J "${config.systemPath}" "${config.repoPath}"`]);
     if (linkRes.success) {
-      logSuccess(`Pomyślnie zlinkowano ${config.name}!`);
+      logSuccess(`Successfully linked ${config.name}!`);
     } else {
-      logError(`Błąd przy tworzeniu skrótu Junction: ${linkRes.stderr}`);
+      logError(`Error creating Junction link: ${linkRes.stderr}`);
     }
   }
 }
 
 function handleUpdate(commitMessage?: string): void {
-  console.log(`\n${colors.bold}--- Aktualizacja dotfiles ---${colors.reset}`);
+  console.log(`\n${colors.bold}--- Updating Dotfiles ---${colors.reset}`);
 
   if (!existsSync(DOTFILES_DIR)) {
-    logError(`Folder repozytorium dotfiles nie istnieje pod ścieżką: ${DOTFILES_DIR}`);
+    logError(`Dotfiles repository directory does not exist at: ${DOTFILES_DIR}`);
     return;
   }
 
-  // 1. Sprawdź zmiany
-  logInfo("Sprawdzanie zmian w dotfiles...");
+  // 1. Check for changes
+  logInfo("Checking changes in dotfiles...");
   const statusRes = runCmd(["git", "status", "--porcelain"], DOTFILES_DIR);
   if (!statusRes.success) {
-    logError(`Błąd git status: ${statusRes.stderr}`);
+    logError(`Failed to check git status: ${statusRes.stderr}`);
     return;
   }
 
   if (!statusRes.stdout) {
-    logSuccess("Brak zmian do zaktualizowania.");
+    logSuccess("No changes to update.");
     return;
   }
 
-  // Wyświetl zmiany
-  console.log(`\n${colors.bold}Wykryte zmiany do wysłania:${colors.reset}`);
+  // Display changes
+  console.log(`\n${colors.bold}Detected changes to push:${colors.reset}`);
   const lines = statusRes.stdout.split("\n");
   for (const line of lines) {
     console.log(`  ${colors.gray}${line}${colors.reset}`);
   }
   console.log("");
 
-  // 2. Sformułuj wiadomość commita
+  // 2. Build the commit message
   let finalMsg = commitMessage;
   if (!finalMsg) {
     const changedConfigs = new Set<string>();
@@ -231,40 +231,40 @@ function handleUpdate(commitMessage?: string): void {
       else changedConfigs.add("general");
     }
     const dateStr = new Date().toISOString().split("T")[0];
-    finalMsg = `update: konfiguracja ${Array.from(changedConfigs).join(", ")} (${dateStr})`;
+    finalMsg = `update: ${Array.from(changedConfigs).join(", ")} config (${dateStr})`;
   }
 
-  // 3. Dodaj pliki do staging
-  logInfo("Dodawanie zmian do indeksu (git add)...");
+  // 3. Stage changes
+  logInfo("Staging changes (git add)...");
   const addRes = runCmd(["git", "add", "-A"], DOTFILES_DIR);
   if (!addRes.success) {
-    logError(`Błąd git add: ${addRes.stderr}`);
+    logError(`Failed to stage changes: ${addRes.stderr}`);
     return;
   }
 
-  // 4. Utwórz commit
-  logInfo(`Tworzenie commita: "${finalMsg}"...`);
+  // 4. Create the commit
+  logInfo(`Creating commit: "${finalMsg}"...`);
   const commitRes = runCmd(["git", "commit", "-m", finalMsg], DOTFILES_DIR);
   if (!commitRes.success) {
-    logError(`Błąd git commit: ${commitRes.stderr}`);
+    logError(`Failed to create commit: ${commitRes.stderr}`);
     return;
   }
-  logSuccess("Commit utworzony pomyślnie!");
+  logSuccess("Commit created successfully!");
 
-  // 5. Pobierz nazwę aktywnej gałęzi i wyślij na zdalny serwer (push)
-  logInfo("Pobieranie nazwy aktywnej gałęzi...");
+  // 5. Retrieve active branch name and push
+  logInfo("Retrieving active branch name...");
   const branchRes = runCmd(["git", "branch", "--show-current"], DOTFILES_DIR);
   const branch = branchRes.success && branchRes.stdout.trim() ? branchRes.stdout.trim() : "master";
 
-  logInfo(`Wysyłanie zmian na serwer zdalny (git push origin ${branch})...`);
+  logInfo(`Pushing changes to remote repository (git push origin ${branch})...`);
   const pushRes = runCmd(["git", "push", "origin", branch], DOTFILES_DIR);
   
   if (pushRes.success) {
-    logSuccess("Dotfiles zostały pomyślnie zaktualizowane i wypchnięte na GitHub!");
+    logSuccess("Dotfiles successfully updated and pushed to GitHub!");
   } else {
-    logWarning(`Wiadomość została zatwierdzona lokalnie, ale nie udało się jej wypchnąć na serwer zdalny:`);
+    logWarning(`Changes committed locally, but failed to push to remote repository:`);
     console.log(`  ${colors.red}${pushRes.stderr}${colors.reset}`);
-    logWarning(`Możesz spróbować wysłać ręcznie później, wpisując: git -C "${DOTFILES_DIR}" push origin ${branch}`);
+    logWarning(`You can try to push manually later using: git -C "${DOTFILES_DIR}" push origin ${branch}`);
   }
 }
 
@@ -272,18 +272,18 @@ function printHelp(): void {
   console.log(`
 ${colors.cyan}${colors.bold}Dotfiles CLI Manager${colors.reset}
 
-Narzędzie do łatwego zarządzania konfiguracjami systemowymi (dotfiles).
+A lightweight CLI manager to keep system configurations (dotfiles) in sync.
 
-${colors.bold}UŻYCIE:${colors.reset}
-  dot <polecenie> [opcje]
+${colors.bold}USAGE:${colors.reset}
+  dot <command> [options]
 
-${colors.bold}POLECENIA:${colors.reset}
-  ${colors.green}update [wiadomosc]${colors.reset}  Automatycznie dodaje, commituje i wysyła zmiany dotfiles na GitHub.
-                          Jeśli nie podasz wiadomości commita, zostanie ona wygenerowana automatycznie.
-  ${colors.green}status${colors.reset}             Sprawdza poprawność połączeń systemowych (Junctions) oraz status gita.
-  ${colors.green}link${colors.reset}               Odtwarza lub tworzy brakujące Junctions w Twoim systemie dla:
-                          .agents, Neovima (nvim) oraz VS Code.
-  ${colors.green}help${colors.reset}               Wyświetla tę pomoc.
+${colors.bold}COMMANDS:${colors.reset}
+  ${colors.green}update [message]${colors.reset}  Stage, commit, and push dotfiles changes to GitHub.
+                          If no commit message is provided, one will be auto-generated.
+  ${colors.green}status${colors.reset}             Check the state of system junctions and the git repository.
+  ${colors.green}link${colors.reset}               Restore or recreate missing system junctions for:
+                          .agents, Neovim (nvim), and VS Code.
+  ${colors.green}help${colors.reset}               Display this help message.
 `);
 }
 
@@ -309,7 +309,7 @@ function main(): void {
       printHelp();
       break;
     default:
-      logError(`Nieznane polecenie: "${args[0]}"`);
+      logError(`Unknown command: "${args[0]}"`);
       printHelp();
       process.exit(1);
   }
