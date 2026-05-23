@@ -1,10 +1,10 @@
 {
-  "_comment": "Example configuration showcasing different link configuration formats.",
+  // Example configuration showcasing different link configuration formats.
   "dotfilesDir": "~/dotfiles",
   "links": [
     {
       "name": ".agents",
-      "_comment": "Format A: Mapping for all platforms. This folder will be linked on Windows, macOS, and Linux.",
+      // Format A: Mapping for all platforms. This folder will be linked on Windows, macOS, and Linux.
       "systemPath": {
         "windows": "~/.agents",
         "macos": "~/.agents",
@@ -13,7 +13,7 @@
     },
     {
       "name": "nvim",
-      "_comment": "Format B: Omit platforms. This link is only configured for Windows and Linux. It will be silently skipped on macOS.",
+      // Format B: Omit platforms. This link is only configured for Windows and Linux. It will be silently skipped on macOS.
       "systemPath": {
         "windows": "~/AppData/Local/nvim",
         "linux": "~/.config/nvim"
@@ -21,14 +21,14 @@
     },
     {
       "name": "hammerspoon",
-      "_comment": "Format C: Platform-specific tool. This link is only configured for macOS and will be skipped on Windows and Linux.",
+      // Format C: Platform-specific tool. This link is only configured for macOS and will be skipped on Windows and Linux.
       "systemPath": {
         "macos": "~/.hammerspoon"
       }
     },
     {
       "name": "generic-tool",
-      "_comment": "Format D: Universal string path. If the path is identical across all systems, you can specify it directly as a string.",
+      // Format D: Universal string path. If the path is identical across all systems, you can specify it directly as a string.
       "systemPath": "~/.generic-tool-config"
     }
   ]
