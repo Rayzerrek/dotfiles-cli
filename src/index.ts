@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, lstatSync, rmSync, readlinkSync, readFileSync, symlinkSync, renameSync } from "fs";
+import { existsSync, lstatSync, rmSync, readlinkSync, readFileSync, symlinkSync, renameSync, writeFileSync } from "fs";
 import { join, resolve, normalize } from "path";
 import { homedir } from "os";
 import { spawnSync } from "child_process";
@@ -371,9 +371,27 @@ function handleUpdate(commitMessage?: string): void {
 
   // 4. Create the commit
   logInfo(`Creating commit: "${finalMsg}"...`);
-  const commitRes = runCmd(["git", "commit", "-m", finalMsg], DOTFILES_DIR);
-  if (!commitRes.success) {
-    logError(`Failed to create commit: ${commitRes.stderr}`);
+  const commitMsgPath = join(DOTFILES_DIR, ".git", "DOT_COMMIT_MSG");
+  let commitRes;
+  try {
+    writeFileSync(commitMsgPath, finalMsg, "utf-8");
+    commitRes = runCmd(["git", "commit", "-F", commitMsgPath], DOTFILES_DIR);
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    logError(`Failed to create commit message file: ${errMsg}`);
+    return;
+  } finally {
+    try {
+      if (existsSync(commitMsgPath)) {
+        rmSync(commitMsgPath, { force: true });
+      }
+    } catch {
+      // Ignore cleanup error
+    }
+  }
+
+  if (!commitRes || !commitRes.success) {
+    logError(`Failed to create commit: ${commitRes ? commitRes.stderr : "Unknown error"}`);
     return;
   }
   logSuccess("Commit created successfully!");
