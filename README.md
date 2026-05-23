@@ -18,14 +18,14 @@ bun build ./src/index.ts --compile --outfile=~/.local/bin/dot
 
 ## Configuration
 
-The CLI supports dynamic links and custom repository locations using a JSON configuration file.
+The CLI supports dynamic links and custom repository locations using a JSONC (JSON with Comments) configuration file.
 
-1. Create a configuration folder at `~/.config/dot/` (or use `~/.dotrc.json` in your home directory).
-2. Copy `config.example.json` from this repository to `~/.config/dot/config.json`:
+1. Create a configuration folder at `~/.config/dot/` (or use `~/.dotrc.jsonc` in your home directory).
+2. Copy `config.example.jsonc` from this repository to `~/.config/dot/config.jsonc`:
    ```bash
-   cp config.example.json ~/.config/dot/config.json
+   cp config.example.jsonc ~/.config/dot/config.jsonc
    ```
-3. Edit `~/.config/dot/config.json` to define your own links.
+3. Edit `~/.config/dot/config.jsonc` to define your own links. Standard comments (`//` and `/* */`) are fully supported!
 
 ### Configuration Format
 

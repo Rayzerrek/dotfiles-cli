@@ -120,12 +120,19 @@ function resolveSystemPath(pathSpec: string | { windows?: string; macos?: string
   return undefined;
 }
 
+// Strips single-line (//) and multi-line (/* ... */) comments from JSON/JSONC string
+function stripComments(content: string): string {
+  return content.replace(/\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g, (m, g) => g ? "" : m);
+}
+
 let DOTFILES_DIR = normalizePath(process.env.DOTFILES_DIR || "~/dotfiles");
 let resolvedConfigs: ResolvedLink[] = [];
 
 function loadConfiguration(): void {
   const configPaths = [
+    join(homedir(), ".config", "dot", "config.jsonc"),
     join(homedir(), ".config", "dot", "config.json"),
+    join(homedir(), ".dotrc.jsonc"),
     join(homedir(), ".dotrc.json")
   ];
 
@@ -147,7 +154,8 @@ function loadConfiguration(): void {
   let configData: DotConfig = {};
   if (configContent) {
     try {
-      configData = JSON.parse(configContent);
+      const cleanJson = stripComments(configContent);
+      configData = JSON.parse(cleanJson);
       logInfo(`Loaded configuration from: ${loadedPath}`);
     } catch (err) {
       logError(`Failed to parse JSON config from ${loadedPath}: ${err instanceof Error ? err.message : String(err)}. Using defaults.`);
