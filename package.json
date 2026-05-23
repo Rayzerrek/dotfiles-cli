@@ -1,7 +1,7 @@
 {
   "name": "dot-cli",
   "version": "1.0.0",
-  "description": "CLI manager for kacpe dotfiles on Windows",
+  "description": "lightweight CLI manager to keep configurations (dotfiles) in sync",
   "main": "src/index.ts",
   "type": "module",
   "devDependencies": {
