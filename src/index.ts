@@ -1,6 +1,7 @@
 import { existsSync, lstatSync, rmSync, readlinkSync, readFileSync, symlinkSync, renameSync } from "fs";
 import { join, resolve, normalize } from "path";
 import { homedir } from "os";
+import { spawnSync } from "child_process";
 
 // Color utilities using ANSI escape codes for professional output styling
 const colors = {
@@ -38,16 +39,19 @@ interface CommandResult {
 
 // Safely execute a system command and return structured result
 function runCmd(args: string[], cwd?: string): CommandResult {
-  const proc = Bun.spawnSync(args, {
+  const command = args[0];
+  const commandArgs = args.slice(1);
+  const proc = spawnSync(command, commandArgs, {
     cwd: cwd,
     env: process.env,
+    shell: process.platform === "win32" // Maximizes compatibility on Windows
   });
 
   return {
-    success: proc.exitCode === 0,
+    success: proc.status === 0,
     stdout: proc.stdout ? proc.stdout.toString().trim() : "",
     stderr: proc.stderr ? proc.stderr.toString().trim() : "",
-    exitCode: proc.exitCode
+    exitCode: proc.status ?? 1
   };
 }
 
