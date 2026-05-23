@@ -36,8 +36,8 @@ The CLI supports dynamic links and custom repository locations using a JSON conf
     {
       "name": "nvim",
       "systemPath": {
-        "win32": "~/AppData/Local/nvim",
-        "darwin": "~/.config/nvim",
+        "windows": "~/AppData/Local/nvim",
+        "macos": "~/.config/nvim",
         "linux": "~/.config/nvim"
       }
     }
@@ -47,7 +47,7 @@ The CLI supports dynamic links and custom repository locations using a JSON conf
 - **`dotfilesDir`**: The absolute path to your central dotfiles repository (defaults to `~/dotfiles` or `DOTFILES_DIR` environment variable).
 - **`links`**: An array of folders to link:
   - **`name`**: The directory name in your dotfiles repository and the label shown in the CLI.
-  - **`systemPath`**: The destination path where the link should sit on the system (can be a plain string, or a platform-specific object supporting `win32`, `darwin`, and `linux`).
+  - **`systemPath`**: The destination path where the link should sit on the system (can be a plain string, or a platform-specific object supporting `windows`, `macos`, and `linux`).
 
 ## Usage
 

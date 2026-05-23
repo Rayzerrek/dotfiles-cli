@@ -54,8 +54,8 @@ function runCmd(args: string[], cwd?: string): CommandResult {
 interface DotfileLink {
   name: string;
   systemPath: string | {
-    win32?: string;
-    darwin?: string;
+    windows?: string;
+    macos?: string;
     linux?: string;
   };
 }
@@ -75,24 +75,24 @@ const DEFAULT_LINKS: DotfileLink[] = [
   {
     name: ".agents",
     systemPath: {
-      win32: "~/.agents",
-      darwin: "~/.agents",
+      windows: "~/.agents",
+      macos: "~/.agents",
       linux: "~/.agents"
     }
   },
   {
     name: "nvim",
     systemPath: {
-      win32: "~/AppData/Local/nvim",
-      darwin: "~/.config/nvim",
+      windows: "~/AppData/Local/nvim",
+      macos: "~/.config/nvim",
       linux: "~/.config/nvim"
     }
   },
   {
     name: ".vscode",
     systemPath: {
-      win32: "~/AppData/Roaming/Code/User",
-      darwin: "~/Library/Application Support/Code/User",
+      windows: "~/AppData/Roaming/Code/User",
+      macos: "~/Library/Application Support/Code/User",
       linux: "~/.config/Code/User"
     }
   }
@@ -109,13 +109,13 @@ function normalizePath(p: string): string {
   return resolve(normalize(expandPath(p)));
 }
 
-function resolveSystemPath(pathSpec: string | { win32?: string; darwin?: string; linux?: string }): string | undefined {
+function resolveSystemPath(pathSpec: string | { windows?: string; macos?: string; linux?: string }): string | undefined {
   if (typeof pathSpec === "string") {
     return pathSpec;
   }
   const platform = process.platform;
-  if (platform === "win32") return pathSpec.win32;
-  if (platform === "darwin") return pathSpec.darwin;
+  if (platform === "win32") return pathSpec.windows;
+  if (platform === "darwin") return pathSpec.macos;
   if (platform === "linux") return pathSpec.linux;
   return undefined;
 }
