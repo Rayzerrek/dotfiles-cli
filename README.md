@@ -24,8 +24,8 @@ If you prefer to clone the repository and run or link it locally:
 
 ```bash
 # Clone the repository and install dependencies
-git clone https://github.com/Rayzerrek/dotfiles-cli.git
-cd dotfiles-cli
+git clone https://github.com/Rayzerrek/dot-cli.git
+cd dot-cli
 npm install
 
 # Compile TypeScript to JavaScript
