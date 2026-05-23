@@ -1,5 +1,6 @@
-import { existsSync, lstatSync, rmSync, readlinkSync } from "fs";
-import { join } from "path";
+import { existsSync, lstatSync, rmSync, readlinkSync, readFileSync, symlinkSync, renameSync } from "fs";
+import { join, resolve, normalize } from "path";
+import { homedir } from "os";
 
 // Color utilities using ANSI escape codes for professional output styling
 const colors = {
@@ -50,34 +51,136 @@ function runCmd(args: string[], cwd?: string): CommandResult {
   };
 }
 
-interface DotfileConfig {
+interface DotfileLink {
   name: string;
-  repoPath: string;    // Absolute path inside our central dotfiles repository
-  systemPath: string;  // Target path in the Windows system where the link should sit
+  systemPath: string | {
+    win32?: string;
+    darwin?: string;
+    linux?: string;
+  };
 }
 
-const DOTFILES_DIR = "C:\\Users\\kacpe\\dotfiles";
+interface DotConfig {
+  dotfilesDir?: string;
+  links?: DotfileLink[];
+}
 
-const configs: DotfileConfig[] = [
+interface ResolvedLink {
+  name: string;
+  repoPath: string;    // Absolute path inside our central dotfiles repository
+  systemPath: string;  // Target path in the system where the link should sit
+}
+
+const DEFAULT_LINKS: DotfileLink[] = [
   {
     name: ".agents",
-    repoPath: join(DOTFILES_DIR, ".agents"),
-    systemPath: "C:\\Users\\kacpe\\.agents"
+    systemPath: {
+      win32: "~/.agents",
+      darwin: "~/.agents",
+      linux: "~/.agents"
+    }
   },
   {
-    name: "Neovim (nvim)",
-    repoPath: join(DOTFILES_DIR, "nvim"),
-    systemPath: "C:\\Users\\kacpe\\AppData\\Local\\nvim"
+    name: "nvim",
+    systemPath: {
+      win32: "~/AppData/Local/nvim",
+      darwin: "~/.config/nvim",
+      linux: "~/.config/nvim"
+    }
   },
   {
-    name: "VS Code (.vscode)",
-    repoPath: join(DOTFILES_DIR, ".vscode"),
-    systemPath: "C:\\Users\\kacpe\\AppData\\Roaming\\Code\\User"
+    name: ".vscode",
+    systemPath: {
+      win32: "~/AppData/Roaming/Code/User",
+      darwin: "~/Library/Application Support/Code/User",
+      linux: "~/.config/Code/User"
+    }
   }
 ];
 
-// Verify if a directory junction is set up correctly
-function checkJunction(config: DotfileConfig): { linked: boolean; message: string } {
+function expandPath(p: string): string {
+  if (p.startsWith("~")) {
+    return join(homedir(), p.slice(1));
+  }
+  return p;
+}
+
+function normalizePath(p: string): string {
+  return resolve(normalize(expandPath(p)));
+}
+
+function resolveSystemPath(pathSpec: string | { win32?: string; darwin?: string; linux?: string }): string | undefined {
+  if (typeof pathSpec === "string") {
+    return pathSpec;
+  }
+  const platform = process.platform;
+  if (platform === "win32") return pathSpec.win32;
+  if (platform === "darwin") return pathSpec.darwin;
+  if (platform === "linux") return pathSpec.linux;
+  return undefined;
+}
+
+let DOTFILES_DIR = normalizePath(process.env.DOTFILES_DIR || "~/dotfiles");
+let resolvedConfigs: ResolvedLink[] = [];
+
+function loadConfiguration(): void {
+  const configPaths = [
+    join(homedir(), ".config", "dot", "config.json"),
+    join(homedir(), ".dotrc.json")
+  ];
+
+  let configContent: string | null = null;
+  let loadedPath: string | null = null;
+
+  for (const path of configPaths) {
+    if (existsSync(path)) {
+      try {
+        configContent = readFileSync(path, "utf-8");
+        loadedPath = path;
+        break;
+      } catch (err) {
+        logWarning(`Found config file at ${path} but failed to read it: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+
+  let configData: DotConfig = {};
+  if (configContent) {
+    try {
+      configData = JSON.parse(configContent);
+      logInfo(`Loaded configuration from: ${loadedPath}`);
+    } catch (err) {
+      logError(`Failed to parse JSON config from ${loadedPath}: ${err instanceof Error ? err.message : String(err)}. Using defaults.`);
+    }
+  }
+
+  // 1. Resolve Dotfiles directory
+  if (configData.dotfilesDir) {
+    DOTFILES_DIR = normalizePath(configData.dotfilesDir);
+  } else if (process.env.DOTFILES_DIR) {
+    DOTFILES_DIR = normalizePath(process.env.DOTFILES_DIR);
+  }
+
+  // 2. Resolve links
+  const rawLinks = configData.links || DEFAULT_LINKS;
+  resolvedConfigs = [];
+
+  for (const link of rawLinks) {
+    const sysPathRaw = resolveSystemPath(link.systemPath);
+    if (!sysPathRaw) {
+      continue;
+    }
+
+    resolvedConfigs.push({
+      name: link.name,
+      repoPath: join(DOTFILES_DIR, link.name),
+      systemPath: normalizePath(sysPathRaw)
+    });
+  }
+}
+
+// Verify if a directory link is set up correctly
+function checkJunction(config: ResolvedLink): { linked: boolean; message: string } {
   if (!existsSync(config.systemPath)) {
     return { linked: false, message: "Directory does not exist in system" };
   }
@@ -85,14 +188,14 @@ function checkJunction(config: DotfileConfig): { linked: boolean; message: strin
   try {
     const stat = lstatSync(config.systemPath);
     if (!stat.isSymbolicLink()) {
-      return { linked: false, message: "Physical directory exists, but is not a junction" };
+      return { linked: false, message: "Physical directory exists, but is not a link" };
     }
 
     const target = readlinkSync(config.systemPath);
-    const normTarget = target.replace(/\//g, "\\").toLowerCase();
-    const normRepo = config.repoPath.replace(/\//g, "\\").toLowerCase();
+    const normTarget = normalizePath(target);
+    const normRepo = normalizePath(config.repoPath);
 
-    if (normTarget === normRepo || normTarget.endsWith(normRepo)) {
+    if (normTarget === normRepo) {
       return { linked: true, message: "Correct" };
     } else {
       return { linked: false, message: `Points to incorrect target: ${target}` };
@@ -104,10 +207,10 @@ function checkJunction(config: DotfileConfig): { linked: boolean; message: strin
 }
 
 function handleStatus(): void {
-  console.log(`\n${colors.bold}--- System Junctions Status ---${colors.reset}`);
+  console.log(`\n${colors.bold}--- System Links Status ---${colors.reset}`);
   
   let allLinked = true;
-  for (const config of configs) {
+  for (const config of resolvedConfigs) {
     const result = checkJunction(config);
     if (result.linked) {
       console.log(`  ${colors.green}[✔ ]${colors.reset} ${colors.bold}${config.name}:${colors.reset} ${result.message}`);
@@ -137,9 +240,9 @@ function handleStatus(): void {
 }
 
 function handleLink(): void {
-  console.log(`\n${colors.bold}--- Restoring Dotfiles Junctions ---${colors.reset}`);
+  console.log(`\n${colors.bold}--- Restoring Dotfiles Links ---${colors.reset}`);
 
-  for (const config of configs) {
+  for (const config of resolvedConfigs) {
     console.log(`\nProcessing ${colors.bold}${config.name}${colors.reset}...`);
     
     // 1. Verify source folder exists in the dotfiles repo
@@ -150,21 +253,23 @@ function handleLink(): void {
 
     const check = checkJunction(config);
     if (check.linked) {
-      logSuccess(`Junction link for ${config.name} is already correct. Skipping.`);
+      logSuccess(`Link for ${config.name} is already correct. Skipping.`);
       continue;
     }
 
-    // 2. If directory exists physically but is not a link, back it up
+    // 2. If directory exists physically but is not a link, back it up natively
     if (existsSync(config.systemPath)) {
       const stat = lstatSync(config.systemPath);
       if (!stat.isSymbolicLink()) {
         const backupPath = `${config.systemPath}_backup_${Date.now()}`;
         logWarning(`Physical folder detected at ${config.systemPath}. Creating backup at: ${backupPath}...`);
         
-        // Rename the physical folder
-        const backupRes = runCmd(["powershell", "-Command", `Move-Item -Path '${config.systemPath}' -Destination '${backupPath}'`]);
-        if (!backupRes.success) {
-          logError(`Failed to create backup: ${backupRes.stderr}`);
+        try {
+          renameSync(config.systemPath, backupPath);
+          logSuccess(`Backup created successfully!`);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          logError(`Failed to create backup: ${errMsg}`);
           continue;
         }
       } else {
@@ -179,13 +284,15 @@ function handleLink(): void {
       }
     }
 
-    // 3. Create the new Junction link
-    logInfo(`Creating Junction link from '${config.systemPath}' to '${config.repoPath}'...`);
-    const linkRes = runCmd(["cmd", "/c", `mklink /J "${config.systemPath}" "${config.repoPath}"`]);
-    if (linkRes.success) {
+    // 3. Create the new link natively
+    logInfo(`Creating link from '${config.systemPath}' to '${config.repoPath}'...`);
+    try {
+      const type = process.platform === "win32" ? "junction" : "dir";
+      symlinkSync(config.repoPath, config.systemPath, type);
       logSuccess(`Successfully linked ${config.name}!`);
-    } else {
-      logError(`Error creating Junction link: ${linkRes.stderr}`);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logError(`Error creating link: ${errMsg}`);
     }
   }
 }
@@ -219,16 +326,24 @@ function handleUpdate(commitMessage?: string): void {
   }
   console.log("");
 
-  // 2. Build the commit message
+  // 2. Build the commit message dynamically based on configs
   let finalMsg = commitMessage;
   if (!finalMsg) {
     const changedConfigs = new Set<string>();
     for (const line of lines) {
       const file = line.trim().slice(3);
-      if (file.startsWith(".agents/")) changedConfigs.add(".agents");
-      else if (file.startsWith("nvim/")) changedConfigs.add("Neovim");
-      else if (file.startsWith(".vscode/")) changedConfigs.add("VS Code");
-      else changedConfigs.add("general");
+      let matched = false;
+      for (const config of resolvedConfigs) {
+        const relRepoPath = config.repoPath.substring(DOTFILES_DIR.length + 1).replace(/\\/g, "/");
+        if (file.startsWith(relRepoPath + "/") || file === relRepoPath) {
+          changedConfigs.add(config.name);
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        changedConfigs.add("general");
+      }
     }
     const dateStr = new Date().toISOString().split("T")[0];
     finalMsg = `update: ${Array.from(changedConfigs).join(", ")} config (${dateStr})`;
@@ -280,14 +395,15 @@ ${colors.bold}USAGE:${colors.reset}
 ${colors.bold}COMMANDS:${colors.reset}
   ${colors.green}update [message]${colors.reset}  Stage, commit, and push dotfiles changes to GitHub.
                           If no commit message is provided, one will be auto-generated.
-  ${colors.green}status${colors.reset}             Check the state of system junctions and the git repository.
-  ${colors.green}link${colors.reset}               Restore or recreate missing system junctions for:
-                          .agents, Neovim (nvim), and VS Code.
+  ${colors.green}status${colors.reset}             Check the state of system links and the git repository.
+  ${colors.green}link${colors.reset}               Restore or recreate missing system links dynamically.
   ${colors.green}help${colors.reset}               Display this help message.
 `);
 }
 
 function main(): void {
+  loadConfiguration();
+  
   const args = process.argv.slice(2);
   const command = args[0]?.toLowerCase();
 
