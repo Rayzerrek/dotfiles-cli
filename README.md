@@ -1,6 +1,10 @@
 # Dotfiles CLI (`dot`)
 
+[![npm version](https://img.shields.io/npm/v/@rayzerrek/dot-cli.svg?style=flat-square)](https://www.npmjs.com/package/@rayzerrek/dot-cli)
+[![npm downloads](https://img.shields.io/npm/dm/@rayzerrek/dot-cli.svg?style=flat-square)](https://www.npmjs.com/package/@rayzerrek/dot-cli)
+
 A lightweight, high-performance, cross-platform CLI manager to keep system configurations (`dotfiles`) in sync across Windows, macOS, and Linux.
+
 
 ## Installation
 
