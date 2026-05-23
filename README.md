@@ -8,7 +8,7 @@ Compile the TypeScript source into a standalone executable using Bun:
 
 ```bash
 # Windows
-bun build ./src/index.ts --compile --outfile=C:\Users\kacpe\.local\bin\dot.exe
+bun build ./src/index.ts --compile --outfile=C:\Users\<username>\.local\bin\dot.exe
 
 # macOS / Linux
 bun build ./src/index.ts --compile --outfile=~/.local/bin/dot
