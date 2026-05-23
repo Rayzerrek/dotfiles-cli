@@ -4,20 +4,26 @@ A lightweight, high-performance, cross-platform CLI manager to keep system confi
 
 ## Installation
 
-You can run `dot` immediately via `npx` or install it globally with `npm`:
+### Via npm (Recommended)
+
+Install the CLI globally on your system:
 
 ```bash
-# Run without installing
-npx dotfiles-cli status
-
-# Or install globally
-npm install -g dotfiles-cli
+npm install -g @rayzerrek/dot-cli
 ```
 
-### Alternatively, build from source:
+Or run it instantly without installation using `npx`:
 
 ```bash
-# Clone and install dependencies
+npx @rayzerrek/dot-cli status
+```
+
+### From Source
+
+If you prefer to clone the repository and run or link it locally:
+
+```bash
+# Clone the repository and install dependencies
 git clone https://github.com/Rayzerrek/dotfiles-cli.git
 cd dotfiles-cli
 npm install
@@ -28,6 +34,7 @@ npm run build
 # Link the CLI globally to your system
 npm link
 ```
+
 
 ## Configuration
 

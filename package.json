@@ -1,11 +1,11 @@
 {
-  "name": "dotfiles-cli",
+  "name": "@rayzerrek/dot-cli",
   "version": "1.0.0",
   "description": "Lightweight, cross-platform CLI manager to keep configurations (dotfiles) in sync",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
-    "dot": "./dist/index.js"
+    "dot": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
