@@ -4,7 +4,17 @@ A lightweight, high-performance, cross-platform CLI manager to keep system confi
 
 ## Installation
 
-Compile the TypeScript source into a standalone executable using Bun:
+You can run `dot` immediately via `npx` or install it globally with `npm`:
+
+```bash
+# Run without installing
+npx dotfiles-cli status
+
+# Or install globally
+npm install -g dotfiles-cli
+```
+
+### Alternatively, build a standalone binary using Bun:
 
 ```bash
 # Windows
@@ -14,18 +24,18 @@ bun build ./src/index.ts --compile --outfile=C:\Users\<username>\.local\bin\dot.
 bun build ./src/index.ts --compile --outfile=~/.local/bin/dot
 ```
 
-*Note: Ensure the output directory is in your system's `PATH` to access `dot` globally.*
+*Note: Ensure your binary destination directory is in your system's `PATH` to access `dot` globally.*
 
 ## Configuration
 
-The CLI supports dynamic links and custom repository locations using a JSONC (JSON with Comments) configuration file.
+The CLI supports dynamic links and custom repository locations using a `config.jsonc` (JSON with Comments) file.
 
 1. Create a configuration folder at `~/.config/dot/` (or use `~/.dotrc.jsonc` in your home directory).
-2. Copy `config.example.jsonc` from this repository to `~/.config/dot/config.jsonc`:
+2. Copy `config.example.jsonc` to `~/.config/dot/config.jsonc`:
    ```bash
    cp config.example.jsonc ~/.config/dot/config.jsonc
    ```
-3. Edit `~/.config/dot/config.jsonc` to define your own links. Standard comments (`//` and `/* */`) are fully supported!
+3. Edit `~/.config/dot/config.jsonc` to define your links. Standard comments (`//` and `/* */`) are fully supported!
 
 ### Configuration Format
 
