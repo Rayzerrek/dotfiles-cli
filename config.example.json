@@ -1,0 +1,29 @@
+{
+  "dotfilesDir": "~/dotfiles",
+  "links": [
+    {
+      "name": ".agents",
+      "systemPath": {
+        "win32": "~/.agents",
+        "darwin": "~/.agents",
+        "linux": "~/.agents"
+      }
+    },
+    {
+      "name": "nvim",
+      "systemPath": {
+        "win32": "~/AppData/Local/nvim",
+        "darwin": "~/.config/nvim",
+        "linux": "~/.config/nvim"
+      }
+    },
+    {
+      "name": ".vscode",
+      "systemPath": {
+        "win32": "~/AppData/Roaming/Code/User",
+        "darwin": "~/Library/Application Support/Code/User",
+        "linux": "~/.config/Code/User"
+      }
+    }
+  ]
+}
