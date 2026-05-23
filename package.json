@@ -4,6 +4,11 @@
   "description": "Lightweight, cross-platform CLI manager to keep configurations (dotfiles) in sync",
   "main": "dist/index.js",
   "type": "module",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+
   "bin": {
     "dot": "dist/index.js"
   },
