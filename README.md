@@ -14,17 +14,20 @@ npx dotfiles-cli status
 npm install -g dotfiles-cli
 ```
 
-### Alternatively, build a standalone binary using Bun:
+### Alternatively, build from source:
 
 ```bash
-# Windows
-bun build ./src/index.ts --compile --outfile=C:\Users\<username>\.local\bin\dot.exe
+# Clone and install dependencies
+git clone https://github.com/Rayzerrek/dotfiles-cli.git
+cd dotfiles-cli
+npm install
 
-# macOS / Linux
-bun build ./src/index.ts --compile --outfile=~/.local/bin/dot
+# Compile TypeScript to JavaScript
+npm run build
+
+# Link the CLI globally to your system
+npm link
 ```
-
-*Note: Ensure your binary destination directory is in your system's `PATH` to access `dot` globally.*
 
 ## Configuration
 
@@ -35,7 +38,7 @@ The CLI supports dynamic links and custom repository locations using a `config.j
    ```bash
    cp config.example.jsonc ~/.config/dot/config.jsonc
    ```
-3. Edit `~/.config/dot/config.jsonc` to define your links. Standard comments (`//` and `/* */`) are fully supported!
+3. Edit `~/.config/dot/config.jsonc` to define your links. 
 
 ### Configuration Format
 
@@ -65,7 +68,7 @@ The CLI supports dynamic links and custom repository locations using a `config.j
 # Check the state of system links and the git repository
 dot status
 
-# Restore or recreate missing system links natively (junctions on Win, symlinks on macOS/Linux)
+# Restore or recreate missing system links 
 dot link
 
 # Stage, commit, and push changes to your dotfiles repository

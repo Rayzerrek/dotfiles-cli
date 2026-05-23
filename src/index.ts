@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { existsSync, lstatSync, rmSync, readlinkSync, readFileSync, symlinkSync, renameSync } from "fs";
 import { join, resolve, normalize } from "path";
 import { homedir } from "os";
@@ -43,8 +44,7 @@ function runCmd(args: string[], cwd?: string): CommandResult {
   const commandArgs = args.slice(1);
   const proc = spawnSync(command, commandArgs, {
     cwd: cwd,
-    env: process.env,
-    shell: process.platform === "win32" // Maximizes compatibility on Windows
+    env: process.env
   });
 
   return {
