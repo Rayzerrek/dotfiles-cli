@@ -1,0 +1,10 @@
+{
+  "name": "dot-cli",
+  "version": "1.0.0",
+  "description": "CLI manager for kacpe dotfiles on Windows",
+  "main": "src/index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  }
+}

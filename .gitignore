@@ -1,0 +1,4 @@
+node_modules/
+bin/
+*.exe
+.DS_Store
