@@ -6,11 +6,12 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   readlinkSync,
   renameSync,
-  rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "fs";
 import { homedir } from "os";
@@ -338,10 +339,111 @@ function handleStatus({ dotfilesDir, links }: AppConfig): boolean {
   return ok;
 }
 
-function handleLink({ links }: AppConfig): boolean {
-  console.log(header("Restoring Dotfiles Links"));
+// Conventional system locations where a link for a dotfile entry named
+// `name` might have been created. We never know the exact original
+// `systemPath` (no state file), so we probe the conventional spots for
+// the current platform. Entries whose system path doesn't follow these
+// conventions (e.g. VSCode's "Code/User") cannot be cleaned this way —
+// that is an accepted trade-off of the state-free design.
+function staleLinkCandidates(name: string): string[] {
+  const home = homedir();
+  const candidates = [join(home, name), join(home, ".config", name)];
+  if (process.platform === "win32") {
+    candidates.push(
+      join(home, "AppData", "Local", name),
+      join(home, "AppData", "Roaming", name),
+    );
+  }
+  return candidates;
+}
+
+// Remove symbolic links/junctions in the system that point at directories in
+// the dotfiles repository which are no longer present in the resolved active
+// configuration. Without this, writes to a path whose entry was removed from
+// `config.jsonc` would silently keep modifying the dotfiles repo.
+//
+// Returns `true` when no problems occurred. Failures while inspecting or
+// removing a single candidate are reported but do not abort the sweep, so a
+// single bad entry can't block cleanup of the rest.
+function cleanStaleLinks({ dotfilesDir, links }: AppConfig): boolean {
+  if (!existsSync(dotfilesDir)) return true;
+
+  let dotfileNames: string[];
+  try {
+    dotfileNames = readdirSync(dotfilesDir, { withFileTypes: true })
+      // `.git` is repo metadata, never a dotfile entry. Other dot-prefixed
+      // folders (e.g. `.github`, `.vscode`) are legitimate candidates.
+      .filter((e) => e.isDirectory() && e.name !== ".git")
+      .map((e) => e.name);
+  } catch (err) {
+    logWarning(
+      `Could not scan dotfiles directory for stale links (${dotfilesDir}): ${errorMessage(err)}`,
+    );
+    return false;
+  }
+
+  const activeNames = new Set(links.map((l) => l.name));
+  const staleNames = dotfileNames.filter((n) => !activeNames.has(n));
+  if (staleNames.length === 0) return true;
+
+  // Render the section header lazily so the command stays silent when there
+  // is nothing to clean up.
+  let printedHeader = false;
+  const ensureHeader = () => {
+    if (printedHeader) return;
+    console.log(header("Cleaning Stale Links"));
+    printedHeader = true;
+  };
 
   let ok = true;
+  for (const name of staleNames) {
+    const repoPath = join(dotfilesDir, name);
+    const normalizedRepoPath = normalizePath(repoPath);
+
+    for (const candidate of staleLinkCandidates(name)) {
+      const stat = safeLstat(candidate);
+      if (!stat || !stat.isSymbolicLink()) continue;
+
+      let target: string;
+      try {
+        target = readlinkSync(candidate);
+      } catch (err) {
+        ensureHeader();
+        logWarning(
+          `Could not read link target at ${candidate}: ${errorMessage(err)}`,
+        );
+        ok = false;
+        continue;
+      }
+
+      if (normalizePath(target) !== normalizedRepoPath) continue;
+
+      try {
+        // unlinkSync removes only the link entry, never the target. rmSync
+        // would also work on POSIX, but Bun on Windows fails with EFAULT
+        // when called on a junction.
+        unlinkSync(candidate);
+        ensureHeader();
+        logSuccess(`Removed stale link: ${candidate} → ${repoPath}`);
+      } catch (err) {
+        ensureHeader();
+        logError(
+          `Failed to remove stale link at ${candidate}: ${errorMessage(err)}`,
+        );
+        ok = false;
+      }
+    }
+  }
+
+  return ok;
+}
+
+function handleLink(config: AppConfig): boolean {
+  let ok = cleanStaleLinks(config);
+
+  const { links } = config;
+  console.log(header("Restoring Dotfiles Links"));
+
   for (const link of links) {
     console.log(`\nProcessing ${bold(link.name)}...`);
 
@@ -392,7 +494,8 @@ function handleLink({ links }: AppConfig): boolean {
       } else {
         logInfo(`Removing invalid or incorrect link at ${link.systemPath}...`);
         try {
-          rmSync(link.systemPath);
+          // See cleanStaleLinks for why we use unlinkSync over rmSync here.
+          unlinkSync(link.systemPath);
         } catch (err) {
           logError(`Failed to remove old link: ${errorMessage(err)}`);
           ok = false;
