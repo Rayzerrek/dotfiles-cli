@@ -6,8 +6,8 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   readlinkSync,
   renameSync,
   symlinkSync,
@@ -17,7 +17,7 @@ import {
 import { homedir } from "os";
 import { join, normalize, resolve } from "path";
 
-// ANSI color helpers — small wrappers keep call sites concise.
+// ANSI color helpers - small wrappers to keep call sites concise
 const RESET = "\x1b[0m";
 const wrap = (code: string) => (s: string) => `${code}${s}${RESET}`;
 const bold = wrap("\x1b[1m");
@@ -48,8 +48,13 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// Returns lstat result or null if path doesn't exist (or is unreadable).
-// Replaces the existsSync + lstatSync pattern with a single syscall.
+/**
+ * Safely retrieves the filesystem `lstat` stats for a given path.
+ * Replaces the double-syscall existsSync + lstatSync pattern with a single try-catch check.
+ *
+ * @param path - The absolute file or directory path.
+ * @returns The `Stats` object, or `null` if the path does not exist or is unreadable.
+ */
 function safeLstat(path: string) {
   try {
     return lstatSync(path);
@@ -64,7 +69,13 @@ interface CommandResult {
   stderr: string;
 }
 
-// Safely execute a system command and return structured result
+/**
+ * Executes a system command synchronously and returns a structured result.
+ *
+ * @param args - The command name and arguments.
+ * @param cwd - The working directory in which to execute the command.
+ * @returns The command execution status, stdout, and stderr.
+ */
 function runCmd(args: string[], cwd?: string): CommandResult {
   const proc = spawnSync(args[0], args.slice(1), {
     cwd,
@@ -101,7 +112,7 @@ interface DotConfig {
 
 interface ResolvedLink {
   name: string;
-  repoPath: string; // Absolute path inside our central dotfiles repository
+  repoPath: string; // Absolute path inside the central dotfiles repository
   systemPath: string; // Target path in the system where the link should sit
 }
 
@@ -110,18 +121,36 @@ interface AppConfig {
   links: ResolvedLink[];
 }
 
+/**
+ * Resolves and normalizes a system path, expanding home directory shortcuts (~).
+ *
+ * @param p - The raw path to normalize.
+ * @returns The absolute, normalized path.
+ */
 function normalizePath(p: string): string {
   const expanded = p.startsWith("~") ? join(homedir(), p.slice(1)) : p;
   return resolve(normalize(expanded));
 }
 
+/**
+ * Resolves a system path specification to a single path string for the current platform.
+ *
+ * @param pathSpec - A string path or a platform-specific mapping object.
+ * @returns The resolved system path, or `undefined` if the current platform is unsupported.
+ */
 function resolveSystemPath(pathSpec: SystemPathSpec): string | undefined {
   if (typeof pathSpec === "string") return pathSpec;
   const key = PLATFORM_KEY[process.platform];
   return key ? pathSpec[key] : undefined;
 }
 
-// Strips single-line (//) and multi-line (/* ... */) comments and trailing commas from JSONC string
+/**
+ * Strips single-line (`//`) and multi-line (`/* ... *\/`) comments,
+ * and trailing commas from a JSONC string to make it valid JSON.
+ *
+ * @param content - The raw JSONC content.
+ * @returns A standard JSON-compliant string.
+ */
 function stripComments(content: string): string {
   let stripped = content.replace(
     /\\"|"(?:\\"|[^"])*"|(\/\/.*|\/\*[\s\S]*?\*\/)/g,
@@ -132,6 +161,12 @@ function stripComments(content: string): string {
   return stripped;
 }
 
+/**
+ * Validates whether a value is a valid SystemPathSpec.
+ *
+ * @param value - The value to check.
+ * @returns `true` if valid, otherwise `false`.
+ */
 function isSystemPathSpec(value: unknown): value is SystemPathSpec {
   if (typeof value === "string") return true;
   if (typeof value !== "object" || value === null) return false;
@@ -145,6 +180,14 @@ function isSystemPathSpec(value: unknown): value is SystemPathSpec {
   );
 }
 
+/**
+ * Validates a single dotfile link entry.
+ *
+ * @param link - The raw link object to validate.
+ * @param i - The index of the link in the array (used for error reporting).
+ * @returns A validated `DotfileLink` object.
+ * @throws An error if the link format is invalid.
+ */
 function validateLink(link: unknown, i: number): DotfileLink {
   if (typeof link !== "object" || link === null) {
     throw new Error(`links[${i}] must be an object`);
@@ -161,6 +204,13 @@ function validateLink(link: unknown, i: number): DotfileLink {
   return { name: entry.name, systemPath: entry.systemPath };
 }
 
+/**
+ * Validates the raw configuration object.
+ *
+ * @param raw - The raw configuration object.
+ * @returns A validated `DotConfig` object.
+ * @throws An error if the configuration has an invalid schema.
+ */
 function validateConfig(raw: unknown): DotConfig {
   if (typeof raw !== "object" || raw === null) {
     throw new Error("Config must be a JSON object");
@@ -189,7 +239,11 @@ function validateConfig(raw: unknown): DotConfig {
 const DOT_DIR = join(homedir(), ".config", "dot");
 const DEFAULT_CONFIG_PATH = join(DOT_DIR, "config.jsonc");
 
-// Search for the first existing config file. Returns null if none found.
+/**
+ * Searches for the first existing configuration file in the conventional candidates list.
+ *
+ * @returns An object containing the config content and its absolute path, or `null` if none found.
+ */
 function findConfigFile(): { content: string; path: string } | null {
   const candidates = [
     DEFAULT_CONFIG_PATH,
@@ -211,7 +265,13 @@ function findConfigFile(): { content: string; path: string } | null {
   return null;
 }
 
-// Print a one-line notice when the config content changed since the last run.
+/**
+ * Detects if the configuration content has changed since the last execution and logs a notice.
+ * Stores an MD5 hash of the config in `~/.config/dot/.config-hash`.
+ *
+ * @param content - The current config file content.
+ * @param path - The path to the config file.
+ */
 function notifyOnConfigChange(content: string, path: string): void {
   const hashFile = join(DOT_DIR, ".config-hash");
   const currentHash = createHash("md5").update(content).digest("hex");
@@ -228,6 +288,12 @@ function notifyOnConfigChange(content: string, path: string): void {
   } catch {}
 }
 
+/**
+ * Loads, parses, and validates the application configuration.
+ * Resolves target system paths and repository paths for the current platform.
+ *
+ * @returns The resolved application configuration.
+ */
 function loadConfiguration(): AppConfig {
   const found = findConfigFile();
 
@@ -268,7 +334,12 @@ function loadConfiguration(): AppConfig {
   return { dotfilesDir, links };
 }
 
-// Verify if a directory link is set up correctly
+/**
+ * Verifies if a symbolic link or junction at the system path points correctly to the repository path.
+ *
+ * @param config - The resolved link metadata.
+ * @returns Verification result with `linked` status and a descriptive message.
+ */
 function checkJunction(config: ResolvedLink): {
   linked: boolean;
   message: string;
@@ -297,6 +368,13 @@ function checkJunction(config: ResolvedLink): {
   }
 }
 
+/**
+ * Handles the "status" command, printing the health of all symlinks
+ * and the git repository status of the dotfiles folder.
+ *
+ * @param config - The active application configuration.
+ * @returns `true` if all links are healthy and repository status was queried successfully; `false` otherwise.
+ */
 function handleStatus({ dotfilesDir, links }: AppConfig): boolean {
   console.log(header("System Links Status"));
 
@@ -339,12 +417,14 @@ function handleStatus({ dotfilesDir, links }: AppConfig): boolean {
   return ok;
 }
 
-// Conventional system locations where a link for a dotfile entry named
-// `name` might have been created. We never know the exact original
-// `systemPath` (no state file), so we probe the conventional spots for
-// the current platform. Entries whose system path doesn't follow these
-// conventions (e.g. VSCode's "Code/User") cannot be cleaned this way —
-// that is an accepted trade-off of the state-free design.
+/**
+ * Generates platform-specific conventional system locations where a dotfile link might reside.
+ * Since the CLI is state-free and does not track the original link location, it probes
+ * standard paths. Customized paths (e.g. VSCode's AppData subfolders) are not cleaned here.
+ *
+ * @param name - The name of the dotfile entry.
+ * @returns An array of candidate paths to check.
+ */
 function staleLinkCandidates(name: string): string[] {
   const home = homedir();
   const candidates = [join(home, name), join(home, ".config", name)];
@@ -357,22 +437,20 @@ function staleLinkCandidates(name: string): string[] {
   return candidates;
 }
 
-// Remove symbolic links/junctions in the system that point at directories in
-// the dotfiles repository which are no longer present in the resolved active
-// configuration. Without this, writes to a path whose entry was removed from
-// `config.jsonc` would silently keep modifying the dotfiles repo.
-//
-// Returns `true` when no problems occurred. Failures while inspecting or
-// removing a single candidate are reported but do not abort the sweep, so a
-// single bad entry can't block cleanup of the rest.
+/**
+ * Removes system links pointing to dotfile directories that have been removed from the active config.
+ * This prevents orphaned links in the system from continuing to write to the dotfiles repository.
+ *
+ * @param config - The active application configuration.
+ * @returns `true` if no errors occurred during cleanup; `false` otherwise.
+ */
 function cleanStaleLinks({ dotfilesDir, links }: AppConfig): boolean {
   if (!existsSync(dotfilesDir)) return true;
 
   let dotfileNames: string[];
   try {
     dotfileNames = readdirSync(dotfilesDir, { withFileTypes: true })
-      // `.git` is repo metadata, never a dotfile entry. Other dot-prefixed
-      // folders (e.g. `.github`, `.vscode`) are legitimate candidates.
+      // Skip git metadata; other dotfiles/directories are valid candidates
       .filter((e) => e.isDirectory() && e.name !== ".git")
       .map((e) => e.name);
   } catch (err) {
@@ -386,8 +464,7 @@ function cleanStaleLinks({ dotfilesDir, links }: AppConfig): boolean {
   const staleNames = dotfileNames.filter((n) => !activeNames.has(n));
   if (staleNames.length === 0) return true;
 
-  // Render the section header lazily so the command stays silent when there
-  // is nothing to clean up.
+  // Render the section header lazily to stay silent when there is nothing to clean up
   let printedHeader = false;
   const ensureHeader = () => {
     if (printedHeader) return;
@@ -419,9 +496,8 @@ function cleanStaleLinks({ dotfilesDir, links }: AppConfig): boolean {
       if (normalizePath(target) !== normalizedRepoPath) continue;
 
       try {
-        // unlinkSync removes only the link entry, never the target. rmSync
-        // would also work on POSIX, but Bun on Windows fails with EFAULT
-        // when called on a junction.
+        // unlinkSync safely removes the link entry without risk of deleting target files.
+        // On Windows, Bun's rmSync fails with EFAULT on junctions, so unlinkSync is required.
         unlinkSync(candidate);
         ensureHeader();
         logSuccess(`Removed stale link: ${candidate} → ${repoPath}`);
@@ -438,6 +514,13 @@ function cleanStaleLinks({ dotfilesDir, links }: AppConfig): boolean {
   return ok;
 }
 
+/**
+ * Handles the "link" command, restoring or recreating missing symlinks/junctions
+ * and migrating files if the source doesn't exist in the repository yet.
+ *
+ * @param config - The active application configuration.
+ * @returns `true` if all links were successfully restored/processed; `false` otherwise.
+ */
 function handleLink(config: AppConfig): boolean {
   let ok = cleanStaleLinks(config);
 
@@ -447,7 +530,7 @@ function handleLink(config: AppConfig): boolean {
   for (const link of links) {
     console.log(`\nProcessing ${bold(link.name)}...`);
 
-    // 1. Ensure source folder exists in the dotfiles repo — migrate from system if needed
+    // Ensure source directory exists; migrate local system files if missing from repository
     if (!existsSync(link.repoPath)) {
       const localStat = safeLstat(link.systemPath);
       if (!localStat || localStat.isSymbolicLink()) {
@@ -475,7 +558,7 @@ function handleLink(config: AppConfig): boolean {
       continue;
     }
 
-    // 2. If something exists at the target, back it up or remove the stale link
+    // Handle existing target by creating a backup (if physical folder) or removing the invalid link
     const stat = safeLstat(link.systemPath);
     if (stat) {
       if (!stat.isSymbolicLink()) {
@@ -494,7 +577,7 @@ function handleLink(config: AppConfig): boolean {
       } else {
         logInfo(`Removing invalid or incorrect link at ${link.systemPath}...`);
         try {
-          // See cleanStaleLinks for why we use unlinkSync over rmSync here.
+          // unlinkSync is required for Windows/Bun junction support
           unlinkSync(link.systemPath);
         } catch (err) {
           logError(`Failed to remove old link: ${errorMessage(err)}`);
@@ -504,7 +587,7 @@ function handleLink(config: AppConfig): boolean {
       }
     }
 
-    // 3. Create the new link natively
+    // Create new symbolic link or junction natively
     logInfo(`Creating link from '${link.systemPath}' to '${link.repoPath}'...`);
     try {
       const type = process.platform === "win32" ? "junction" : "dir";
@@ -519,7 +602,15 @@ function handleLink(config: AppConfig): boolean {
   return ok;
 }
 
-// Build a commit message from porcelain status lines, grouping changes by link name.
+/**
+ * Dynamically generates a git commit message based on porcelain status lines.
+ * Groups changes by their config link names or falls back to "general".
+ *
+ * @param statusLines - Raw porcelain git status lines.
+ * @param links - The active resolved links.
+ * @param dotfilesDir - Absolute path to the dotfiles directory.
+ * @returns A formatted commit message string.
+ */
 function buildCommitMessage(
   statusLines: string[],
   links: ResolvedLink[],
@@ -543,6 +634,14 @@ function buildCommitMessage(
   return `update: ${[...changedConfigs].join(", ")} config (${dateStr})`;
 }
 
+/**
+ * Handles the "update" command, staging changes, creating a commit,
+ * and pushing updates to the remote origin branch.
+ *
+ * @param config - The active application configuration.
+ * @param commitMessage - Optional custom commit message.
+ * @returns `true` if the update completed successfully (with or without changes); `false` otherwise.
+ */
 function handleUpdate(
   { dotfilesDir, links }: AppConfig,
   commitMessage?: string,
@@ -556,7 +655,6 @@ function handleUpdate(
 
   const git = (...args: string[]) => runCmd(["git", ...args], dotfilesDir);
 
-  // 1. Check for changes
   logInfo("Checking changes in dotfiles...");
   const statusRes = git("status", "--porcelain");
   if (!statusRes.success) {
@@ -570,18 +668,17 @@ function handleUpdate(
 
   const lines = statusRes.stdout.split(/\r?\n/);
 
-  // Display changes
+  // Display changes to be pushed
   console.log(`\n${bold("Detected changes to push:")}`);
   for (const line of lines) {
     console.log(`  ${gray(line)}`);
   }
   console.log("");
 
-  // 2. Build commit message (auto if not provided)
+  // Prepare commit message
   const finalMsg =
     commitMessage ?? buildCommitMessage(lines, links, dotfilesDir);
 
-  // 3. Stage changes
   logInfo("Staging changes (git add)...");
   const addRes = git("add", "-A");
   if (!addRes.success) {
@@ -589,7 +686,6 @@ function handleUpdate(
     return false;
   }
 
-  // 4. Create the commit
   logInfo(`Creating commit: "${finalMsg}"...`);
   const commitRes = git("commit", "-m", finalMsg);
   if (!commitRes.success) {
@@ -598,7 +694,6 @@ function handleUpdate(
   }
   logSuccess("Commit created successfully!");
 
-  // 5. Resolve current branch (no silent fallback — better to fail clearly)
   const branchRes = git("branch", "--show-current");
   if (!branchRes.success || !branchRes.stdout) {
     logError(
@@ -628,6 +723,9 @@ function handleUpdate(
   return false;
 }
 
+/**
+ * Prints the command-line interface usage guide and available commands.
+ */
 function printHelp(): void {
   console.log(`
 ${cyan(bold("Dotfiles CLI Manager"))}
@@ -646,6 +744,9 @@ ${bold("COMMANDS:")}
 `);
 }
 
+/**
+ * Application entry point. Loads configuration and dispatches the specified CLI command.
+ */
 function main(): void {
   const config = loadConfiguration();
 
