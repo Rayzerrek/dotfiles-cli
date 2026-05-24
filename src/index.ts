@@ -1,48 +1,59 @@
 #!/usr/bin/env node
 import { spawnSync } from "child_process";
+import { createHash } from "crypto";
 import {
   existsSync,
   lstatSync,
+  mkdirSync,
   readFileSync,
   readlinkSync,
   renameSync,
   rmSync,
   symlinkSync,
+  writeFileSync,
 } from "fs";
 import { homedir } from "os";
 import { join, normalize, resolve } from "path";
 
-// Color utilities using ANSI escape codes for professional output styling
-const colors = {
-  reset: "\x1b[0m",
-  bold: "\x1b[1m",
-  green: "\x1b[32m",
-  red: "\x1b[31m",
-  yellow: "\x1b[33m",
-  cyan: "\x1b[36m",
-  gray: "\x1b[90m",
-};
+// ANSI color helpers — small wrappers keep call sites concise.
+const RESET = "\x1b[0m";
+const wrap = (code: string) => (s: string) => `${code}${s}${RESET}`;
+const bold = wrap("\x1b[1m");
+const green = wrap("\x1b[32m");
+const red = wrap("\x1b[31m");
+const yellow = wrap("\x1b[33m");
+const cyan = wrap("\x1b[36m");
+const gray = wrap("\x1b[90m");
+const header = (title: string) => `\n${bold(`--- ${title} ---`)}`;
 
 function logInfo(msg: string): void {
-  console.log(`${colors.cyan}ℹ${colors.reset} ${msg}`);
+  console.log(`${cyan("ℹ")} ${msg}`);
 }
 
 function logSuccess(msg: string): void {
-  console.log(`${colors.green}✔${colors.reset} ${msg}`);
+  console.log(`${green("✔")} ${msg}`);
 }
 
 function logWarning(msg: string): void {
-  console.log(`${colors.yellow}⚠${colors.reset} ${msg}`);
+  console.log(`${yellow("⚠")} ${msg}`);
 }
 
 function logError(msg: string): void {
-  console.error(
-    `${colors.red}✘${colors.reset} ${colors.bold}Error:${colors.reset} ${msg}`,
-  );
+  console.error(`${red("✘")} ${bold("Error:")} ${msg}`);
 }
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// Returns lstat result or null if path doesn't exist (or is unreadable).
+// Replaces the existsSync + lstatSync pattern with a single syscall.
+function safeLstat(path: string) {
+  try {
+    return lstatSync(path);
+  } catch {
+    return null;
+  }
 }
 
 interface CommandResult {
@@ -53,14 +64,11 @@ interface CommandResult {
 
 // Safely execute a system command and return structured result
 function runCmd(args: string[], cwd?: string): CommandResult {
-  const command = args[0];
-  const commandArgs = args.slice(1);
-  const proc = spawnSync(command, commandArgs, {
-    cwd: cwd,
+  const proc = spawnSync(args[0], args.slice(1), {
+    cwd,
     env: process.env,
     encoding: "utf-8",
   });
-
   return {
     success: proc.status === 0,
     stdout: proc.stdout?.trim() ?? "",
@@ -68,15 +76,20 @@ function runCmd(args: string[], cwd?: string): CommandResult {
   };
 }
 
+// Platform keys used in config systemPath maps.
+const PLATFORM_KEYS = ["windows", "macos", "linux"] as const;
+type PlatformKey = (typeof PLATFORM_KEYS)[number];
+type SystemPathSpec = string | Partial<Record<PlatformKey, string>>;
+
+const PLATFORM_KEY: Record<string, PlatformKey> = {
+  win32: "windows",
+  darwin: "macos",
+  linux: "linux",
+};
+
 interface DotfileLink {
   name: string;
-  systemPath:
-    | string
-    | {
-        windows?: string;
-        macos?: string;
-        linux?: string;
-      };
+  systemPath: SystemPathSpec;
 }
 
 interface DotConfig {
@@ -95,29 +108,13 @@ interface AppConfig {
   links: ResolvedLink[];
 }
 
-function expandPath(p: string): string {
-  if (p.startsWith("~")) {
-    return join(homedir(), p.slice(1));
-  }
-  return p;
-}
-
 function normalizePath(p: string): string {
-  return resolve(normalize(expandPath(p)));
+  const expanded = p.startsWith("~") ? join(homedir(), p.slice(1)) : p;
+  return resolve(normalize(expanded));
 }
 
-const PLATFORM_KEY: Record<string, "windows" | "macos" | "linux"> = {
-  win32: "windows",
-  darwin: "macos",
-  linux: "linux",
-};
-
-function resolveSystemPath(
-  pathSpec: string | { windows?: string; macos?: string; linux?: string },
-): string | undefined {
-  if (typeof pathSpec === "string") {
-    return pathSpec;
-  }
+function resolveSystemPath(pathSpec: SystemPathSpec): string | undefined {
+  if (typeof pathSpec === "string") return pathSpec;
   const key = PLATFORM_KEY[process.platform];
   return key ? pathSpec[key] : undefined;
 }
@@ -133,18 +130,33 @@ function stripComments(content: string): string {
   return stripped;
 }
 
-function isSystemPathSpec(
-  value: unknown,
-): value is string | { windows?: string; macos?: string; linux?: string } {
+function isSystemPathSpec(value: unknown): value is SystemPathSpec {
   if (typeof value === "string") return true;
   if (typeof value !== "object" || value === null) return false;
-  const obj = value as Record<string, unknown>;
-  const keys = Object.keys(obj);
-  if (keys.length === 0) return false;
-  return keys.every((k) => {
-    if (k !== "windows" && k !== "macos" && k !== "linux") return false;
-    return typeof obj[k] === "string";
-  });
+  const entries = Object.entries(value as Record<string, unknown>);
+  return (
+    entries.length > 0 &&
+    entries.every(
+      ([k, v]) =>
+        PLATFORM_KEYS.includes(k as PlatformKey) && typeof v === "string",
+    )
+  );
+}
+
+function validateLink(link: unknown, i: number): DotfileLink {
+  if (typeof link !== "object" || link === null) {
+    throw new Error(`links[${i}] must be an object`);
+  }
+  const entry = link as Record<string, unknown>;
+  if (typeof entry.name !== "string") {
+    throw new Error(`links[${i}].name must be a string`);
+  }
+  if (!("systemPath" in entry) || !isSystemPathSpec(entry.systemPath)) {
+    throw new Error(
+      `links[${i}].systemPath must be a string or { windows?, macos?, linux? }`,
+    );
+  }
+  return { name: entry.name, systemPath: entry.systemPath };
 }
 
 function validateConfig(raw: unknown): DotConfig {
@@ -165,89 +177,85 @@ function validateConfig(raw: unknown): DotConfig {
     if (!Array.isArray(obj.links)) {
       throw new Error(`"links" must be an array`);
     }
-    config.links = obj.links.map((link: unknown, i: number) => {
-      if (typeof link !== "object" || link === null) {
-        throw new Error(`links[${i}] must be an object`);
-      }
-      const entry = link as Record<string, unknown>;
-      if (typeof entry.name !== "string") {
-        throw new Error(`links[${i}].name must be a string`);
-      }
-      if (!("systemPath" in entry) || !isSystemPathSpec(entry.systemPath)) {
-        throw new Error(
-          `links[${i}].systemPath must be a string or { windows?, macos?, linux? }`,
-        );
-      }
-      return entry as unknown as DotfileLink;
-    });
+    config.links = obj.links.map(validateLink);
   }
 
   return config;
 }
 
-function loadConfiguration(): AppConfig {
-  const configPaths = [
-    join(homedir(), ".config", "dot", "config.jsonc"),
-    join(homedir(), ".config", "dot", "config.json"),
+// Default location for config + cache files (~/.config/dot)
+const DOT_DIR = join(homedir(), ".config", "dot");
+const DEFAULT_CONFIG_PATH = join(DOT_DIR, "config.jsonc");
+
+// Search for the first existing config file. Returns null if none found.
+function findConfigFile(): { content: string; path: string } | null {
+  const candidates = [
+    DEFAULT_CONFIG_PATH,
+    join(DOT_DIR, "config.json"),
     join(homedir(), ".dotrc.jsonc"),
     join(homedir(), ".dotrc.json"),
   ];
 
-  let configContent: string | null = null;
-  let loadedPath: string | null = null;
-
-  for (const path of configPaths) {
-    if (existsSync(path)) {
-      try {
-        configContent = readFileSync(path, "utf-8");
-        loadedPath = path;
-        break;
-      } catch (err) {
-        logWarning(
-          `Found config file at ${path} but failed to read it: ${errorMessage(err)}`,
-        );
-      }
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    try {
+      return { content: readFileSync(path, "utf-8"), path };
+    } catch (err) {
+      logWarning(
+        `Found config file at ${path} but failed to read it: ${errorMessage(err)}`,
+      );
     }
   }
+  return null;
+}
+
+// Print a one-line notice when the config content changed since the last run.
+function notifyOnConfigChange(content: string, path: string): void {
+  const hashFile = join(DOT_DIR, ".config-hash");
+  const currentHash = createHash("md5").update(content).digest("hex");
+  let previousHash = "";
+  try {
+    previousHash = readFileSync(hashFile, "utf-8").trim();
+  } catch {}
+  if (previousHash && previousHash !== currentHash) {
+    logInfo(`Configuration changed (${path})`);
+  }
+  try {
+    if (!existsSync(DOT_DIR)) mkdirSync(DOT_DIR, { recursive: true });
+    writeFileSync(hashFile, currentHash);
+  } catch {}
+}
+
+function loadConfiguration(): AppConfig {
+  const found = findConfigFile();
 
   let configData: DotConfig = {};
-  if (configContent) {
+  if (found) {
     try {
-      const cleanJson = stripComments(configContent);
-      configData = validateConfig(JSON.parse(cleanJson));
-      logInfo(`Loaded configuration from: ${loadedPath}`);
+      configData = validateConfig(JSON.parse(stripComments(found.content)));
+      notifyOnConfigChange(found.content, found.path);
     } catch (err) {
       logError(
-        `Failed to parse config from ${loadedPath}: ${errorMessage(err)}`,
+        `Failed to parse config from ${found.path}: ${errorMessage(err)}`,
       );
     }
   } else {
     logWarning(
-      `No configuration file found. Create one at ~/.config/dot/config.jsonc`,
+      `No configuration file found. Create one at ${DEFAULT_CONFIG_PATH}`,
     );
     logInfo(`See: https://github.com/Rayzerrek/dot-cli#configuration`);
   }
 
-  // 1. Resolve Dotfiles directory
-  let dotfilesDir: string;
-  if (configData.dotfilesDir) {
-    dotfilesDir = normalizePath(configData.dotfilesDir);
-  } else if (process.env.DOTFILES_DIR) {
-    dotfilesDir = normalizePath(process.env.DOTFILES_DIR);
-  } else {
-    dotfilesDir = normalizePath("~/dotfiles");
-  }
+  // Resolve dotfiles directory (config > env > default)
+  const dotfilesDir = normalizePath(
+    configData.dotfilesDir ?? process.env.DOTFILES_DIR ?? "~/dotfiles",
+  );
 
-  // 2. Resolve links
-  const rawLinks = configData.links ?? [];
+  // Resolve links for the current platform
   const links: ResolvedLink[] = [];
-
-  for (const link of rawLinks) {
+  for (const link of configData.links ?? []) {
     const sysPathRaw = resolveSystemPath(link.systemPath);
-    if (!sysPathRaw) {
-      continue;
-    }
-
+    if (!sysPathRaw) continue;
     links.push({
       name: link.name,
       repoPath: join(dotfilesDir, link.name),
@@ -263,32 +271,23 @@ function checkJunction(config: ResolvedLink): {
   linked: boolean;
   message: string;
 } {
-  if (!existsSync(config.systemPath)) {
+  const stat = safeLstat(config.systemPath);
+  if (!stat) {
     return { linked: false, message: "Directory does not exist in system" };
   }
-
+  if (!stat.isSymbolicLink()) {
+    return {
+      linked: false,
+      message: "Physical directory exists, but is not a link",
+    };
+  }
   try {
-    const stat = lstatSync(config.systemPath);
-    if (!stat.isSymbolicLink()) {
-      return {
-        linked: false,
-        message: "Physical directory exists, but is not a link",
-      };
-    }
-
     const target = readlinkSync(config.systemPath);
-    const normTarget = normalizePath(target);
-    const normRepo = normalizePath(config.repoPath);
-
-    if (normTarget === normRepo) {
+    if (normalizePath(target) === normalizePath(config.repoPath)) {
       return { linked: true, message: "Correct" };
-    } else {
-      return {
-        linked: false,
-        message: `Points to incorrect target: ${target}`,
-      };
     }
-  } catch (err: unknown) {
+    return { linked: false, message: `Points to incorrect target: ${target}` };
+  } catch (err) {
     return {
       linked: false,
       message: `Error reading link: ${errorMessage(err)}`,
@@ -297,62 +296,53 @@ function checkJunction(config: ResolvedLink): {
 }
 
 function handleStatus({ dotfilesDir, links }: AppConfig): boolean {
-  console.log(`\n${colors.bold}--- System Links Status ---${colors.reset}`);
+  console.log(header("System Links Status"));
 
   let ok = true;
   for (const link of links) {
     const result = checkJunction(link);
     if (result.linked) {
       console.log(
-        `  ${colors.green}[✔ ]${colors.reset} ${colors.bold}${link.name}:${colors.reset} ${result.message}`,
+        `  ${green("[✔ ]")} ${bold(`${link.name}:`)} ${result.message}`,
       );
     } else {
       ok = false;
       console.log(
-        `  ${colors.red}[✘ ]${colors.reset} ${colors.bold}${link.name}:${colors.reset} ${colors.yellow}${result.message}${colors.reset}`,
+        `  ${red("[✘ ]")} ${bold(`${link.name}:`)} ${yellow(result.message)}`,
       );
     }
   }
 
-  console.log(
-    `\n${colors.bold}--- Git Repository Status (dotfiles) ---${colors.reset}`,
-  );
+  console.log(header("Git Repository Status (dotfiles)"));
   if (!existsSync(dotfilesDir)) {
     logError(`Dotfiles repository directory does not exist at: ${dotfilesDir}`);
     return false;
   }
 
   const gitStatus = runCmd(["git", "status", "-s"], dotfilesDir);
-  if (gitStatus.success) {
-    if (gitStatus.stdout) {
-      console.log(
-        `${colors.yellow}Uncommitted changes detected in repository:${colors.reset}`,
-      );
-      console.log(
-        gitStatus.stdout
-          .split("\n")
-          .map((line) => `  ${line}`)
-          .join("\n"),
-      );
-    } else {
-      logSuccess("Dotfiles repository is clean (nothing to commit).");
-    }
-  } else {
+  if (!gitStatus.success) {
     logError(`Failed to run git status: ${gitStatus.stderr}`);
     return false;
+  }
+
+  if (gitStatus.stdout) {
+    console.log(yellow("Uncommitted changes detected in repository:"));
+    for (const line of gitStatus.stdout.split(/\r?\n/)) {
+      console.log(`  ${line}`);
+    }
+  } else {
+    logSuccess("Dotfiles repository is clean (nothing to commit).");
   }
 
   return ok;
 }
 
 function handleLink({ links }: AppConfig): boolean {
-  console.log(
-    `\n${colors.bold}--- Restoring Dotfiles Links ---${colors.reset}`,
-  );
+  console.log(header("Restoring Dotfiles Links"));
 
   let ok = true;
   for (const link of links) {
-    console.log(`\nProcessing ${colors.bold}${link.name}${colors.reset}...`);
+    console.log(`\nProcessing ${bold(link.name)}...`);
 
     // 1. Verify source folder exists in the dotfiles repo
     if (!existsSync(link.repoPath)) {
@@ -363,25 +353,23 @@ function handleLink({ links }: AppConfig): boolean {
       continue;
     }
 
-    const check = checkJunction(link);
-    if (check.linked) {
+    if (checkJunction(link).linked) {
       logSuccess(`Link for ${link.name} is already correct. Skipping.`);
       continue;
     }
 
-    // 2. If directory exists physically but is not a link, back it up natively
-    if (existsSync(link.systemPath)) {
-      const stat = lstatSync(link.systemPath);
+    // 2. If something exists at the target, back it up or remove the stale link
+    const stat = safeLstat(link.systemPath);
+    if (stat) {
       if (!stat.isSymbolicLink()) {
         const backupPath = `${link.systemPath}_backup_${Date.now()}`;
         logWarning(
           `Physical folder detected at ${link.systemPath}. Creating backup at: ${backupPath}...`,
         );
-
         try {
           renameSync(link.systemPath, backupPath);
           logSuccess(`Backup created successfully!`);
-        } catch (err: unknown) {
+        } catch (err) {
           logError(`Failed to create backup: ${errorMessage(err)}`);
           ok = false;
           continue;
@@ -390,7 +378,7 @@ function handleLink({ links }: AppConfig): boolean {
         logInfo(`Removing invalid or incorrect link at ${link.systemPath}...`);
         try {
           rmSync(link.systemPath);
-        } catch (err: unknown) {
+        } catch (err) {
           logError(`Failed to remove old link: ${errorMessage(err)}`);
           ok = false;
           continue;
@@ -404,7 +392,7 @@ function handleLink({ links }: AppConfig): boolean {
       const type = process.platform === "win32" ? "junction" : "dir";
       symlinkSync(link.repoPath, link.systemPath, type);
       logSuccess(`Successfully linked ${link.name}!`);
-    } catch (err: unknown) {
+    } catch (err) {
       logError(`Error creating link: ${errorMessage(err)}`);
       ok = false;
     }
@@ -413,66 +401,71 @@ function handleLink({ links }: AppConfig): boolean {
   return ok;
 }
 
+// Build a commit message from porcelain status lines, grouping changes by link name.
+function buildCommitMessage(
+  statusLines: string[],
+  links: ResolvedLink[],
+  dotfilesDir: string,
+): string {
+  const relPaths = links.map((link) => ({
+    name: link.name,
+    rel: link.repoPath.substring(dotfilesDir.length + 1).replace(/\\/g, "/"),
+  }));
+  const changedConfigs = new Set<string>();
+
+  for (const line of statusLines) {
+    const file = line.slice(3);
+    const match = relPaths.find(
+      ({ rel }) => file === rel || file.startsWith(rel + "/"),
+    );
+    changedConfigs.add(match ? match.name : "general");
+  }
+
+  const dateStr = new Date().toISOString().split("T")[0];
+  return `update: ${[...changedConfigs].join(", ")} config (${dateStr})`;
+}
+
 function handleUpdate(
   { dotfilesDir, links }: AppConfig,
   commitMessage?: string,
 ): boolean {
-  console.log(`\n${colors.bold}--- Updating Dotfiles ---${colors.reset}`);
+  console.log(header("Updating Dotfiles"));
 
   if (!existsSync(dotfilesDir)) {
     logError(`Dotfiles repository directory does not exist at: ${dotfilesDir}`);
     return false;
   }
 
+  const git = (...args: string[]) => runCmd(["git", ...args], dotfilesDir);
+
   // 1. Check for changes
   logInfo("Checking changes in dotfiles...");
-  const statusRes = runCmd(["git", "status", "--porcelain"], dotfilesDir);
+  const statusRes = git("status", "--porcelain");
   if (!statusRes.success) {
     logError(`Failed to check git status: ${statusRes.stderr}`);
     return false;
   }
-
   if (!statusRes.stdout) {
     logSuccess("No changes to update.");
     return true;
   }
 
+  const lines = statusRes.stdout.split(/\r?\n/);
+
   // Display changes
-  console.log(`\n${colors.bold}Detected changes to push:${colors.reset}`);
-  const lines = statusRes.stdout.split("\n");
+  console.log(`\n${bold("Detected changes to push:")}`);
   for (const line of lines) {
-    console.log(`  ${colors.gray}${line}${colors.reset}`);
+    console.log(`  ${gray(line)}`);
   }
   console.log("");
 
-  // 2. Build the commit message dynamically based on configs
-  let finalMsg = commitMessage;
-  if (!finalMsg) {
-    const changedConfigs = new Set<string>();
-    for (const line of lines) {
-      const file = line.slice(3);
-      let matched = false;
-      for (const link of links) {
-        const relRepoPath = link.repoPath
-          .substring(dotfilesDir.length + 1)
-          .replace(/\\/g, "/");
-        if (file.startsWith(relRepoPath + "/") || file === relRepoPath) {
-          changedConfigs.add(link.name);
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        changedConfigs.add("general");
-      }
-    }
-    const dateStr = new Date().toISOString().split("T")[0];
-    finalMsg = `update: ${Array.from(changedConfigs).join(", ")} config (${dateStr})`;
-  }
+  // 2. Build commit message (auto if not provided)
+  const finalMsg =
+    commitMessage ?? buildCommitMessage(lines, links, dotfilesDir);
 
   // 3. Stage changes
   logInfo("Staging changes (git add)...");
-  const addRes = runCmd(["git", "add", "-A"], dotfilesDir);
+  const addRes = git("add", "-A");
   if (!addRes.success) {
     logError(`Failed to stage changes: ${addRes.stderr}`);
     return false;
@@ -480,55 +473,58 @@ function handleUpdate(
 
   // 4. Create the commit
   logInfo(`Creating commit: "${finalMsg}"...`);
-  const commitRes = runCmd(["git", "commit", "-m", finalMsg], dotfilesDir);
-
+  const commitRes = git("commit", "-m", finalMsg);
   if (!commitRes.success) {
     logError(`Failed to create commit: ${commitRes.stderr}`);
     return false;
   }
   logSuccess("Commit created successfully!");
 
-  // 5. Retrieve active branch name and push
-  logInfo("Retrieving active branch name...");
-  const branchRes = runCmd(["git", "branch", "--show-current"], dotfilesDir);
-  const branch =
-    branchRes.success && branchRes.stdout ? branchRes.stdout : "master";
-
-  logInfo(
-    `Pushing changes to remote repository (git push origin ${branch})...`,
-  );
-  const pushRes = runCmd(["git", "push", "origin", branch], dotfilesDir);
-
-  if (pushRes.success) {
-    logSuccess("Dotfiles successfully updated and pushed to GitHub!");
-    return true;
-  } else {
-    logWarning(
-      `Changes committed locally, but failed to push to remote repository:`,
+  // 5. Resolve current branch (no silent fallback — better to fail clearly)
+  const branchRes = git("branch", "--show-current");
+  if (!branchRes.success || !branchRes.stdout) {
+    logError(
+      `Could not determine current branch: ${branchRes.stderr || "empty result"}`,
     );
-    console.log(`  ${colors.red}${pushRes.stderr}${colors.reset}`);
     logWarning(
-      `You can try to push manually later using: git -C "${dotfilesDir}" push origin ${branch}`,
+      `Commit was created locally. Push manually with: git -C "${dotfilesDir}" push origin <branch>`,
     );
     return false;
   }
+  const branch = branchRes.stdout;
+
+  logInfo(`Pushing changes to remote (git push origin ${branch})...`);
+  const pushRes = git("push", "origin", branch);
+  if (pushRes.success) {
+    logSuccess("Dotfiles successfully updated and pushed to GitHub!");
+    return true;
+  }
+
+  logWarning(
+    "Changes committed locally, but failed to push to remote repository:",
+  );
+  console.log(`  ${red(pushRes.stderr)}`);
+  logWarning(
+    `You can try to push manually later using: git -C "${dotfilesDir}" push origin ${branch}`,
+  );
+  return false;
 }
 
 function printHelp(): void {
   console.log(`
-${colors.cyan}${colors.bold}Dotfiles CLI Manager${colors.reset}
+${cyan(bold("Dotfiles CLI Manager"))}
 
 A lightweight CLI manager to keep system configurations (dotfiles) in sync.
 
-${colors.bold}USAGE:${colors.reset}
+${bold("USAGE:")}
   dot <command> [options]
 
-${colors.bold}COMMANDS:${colors.reset}
-  ${colors.green}update [message]${colors.reset}  Stage, commit, and push dotfiles changes to GitHub.
+${bold("COMMANDS:")}
+  ${green("update [message]")}  Stage, commit, and push dotfiles changes to GitHub.
                           If no commit message is provided, one will be auto-generated.
-  ${colors.green}status${colors.reset}             Check the state of system links and the git repository.
-  ${colors.green}link${colors.reset}               Restore or recreate missing system links dynamically.
-  ${colors.green}help${colors.reset}               Display this help message.
+  ${green("status")}             Check the state of system links and the git repository.
+  ${green("link")}               Restore or recreate missing system links dynamically.
+  ${green("help")}               Display this help message.
 `);
 }
 
