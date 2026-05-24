@@ -2,6 +2,7 @@
 import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import {
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -344,13 +345,27 @@ function handleLink({ links }: AppConfig): boolean {
   for (const link of links) {
     console.log(`\nProcessing ${bold(link.name)}...`);
 
-    // 1. Verify source folder exists in the dotfiles repo
+    // 1. Ensure source folder exists in the dotfiles repo — migrate from system if needed
     if (!existsSync(link.repoPath)) {
-      logError(
-        `Source directory in repository does not exist: ${link.repoPath}. Skipping.`,
+      const localStat = safeLstat(link.systemPath);
+      if (!localStat || localStat.isSymbolicLink()) {
+        logError(
+          `Source directory does not exist in repository: ${link.repoPath}. Skipping.`,
+        );
+        ok = false;
+        continue;
+      }
+      logInfo(
+        `Migrating local configuration from ${link.systemPath} to ${link.repoPath}...`,
       );
-      ok = false;
-      continue;
+      try {
+        cpSync(link.systemPath, link.repoPath, { recursive: true });
+        logSuccess(`Successfully migrated files to ${link.repoPath}!`);
+      } catch (err) {
+        logError(`Failed to migrate files: ${errorMessage(err)}`);
+        ok = false;
+        continue;
+      }
     }
 
     if (checkJunction(link).linked) {

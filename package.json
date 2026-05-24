@@ -21,7 +21,8 @@
   },
   "homepage": "https://github.com/Rayzerrek/dot-cli#readme",
   "scripts": {
-    "build": "tsc",
+    "build": "bun build ./src/index.ts --target=bun --outfile=./dist/index.js --banner=\"#!/usr/bin/env bun\\n\" && tsc --emitDeclarationOnly",
+    "compile": "bun build ./src/index.ts --compile --outfile=./dist/dot.exe",
     "prepare": "npm run build"
   },
   "devDependencies": {
