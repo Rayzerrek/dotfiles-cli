@@ -283,7 +283,7 @@ function notifyOnConfigChange(content: string, path: string): void {
     logInfo(`Configuration changed (${path})`);
   }
   try {
-    if (!existsSync(DOT_DIR)) mkdirSync(DOT_DIR, { recursive: true });
+    mkdirSync(DOT_DIR, { recursive: true });
     writeFileSync(hashFile, currentHash);
   } catch {}
 }
@@ -614,18 +614,13 @@ function handleLink(config: AppConfig): boolean {
 function buildCommitMessage(
   statusLines: string[],
   links: ResolvedLink[],
-  dotfilesDir: string,
 ): string {
-  const relPaths = links.map((link) => ({
-    name: link.name,
-    rel: link.repoPath.substring(dotfilesDir.length + 1).replace(/\\/g, "/"),
-  }));
   const changedConfigs = new Set<string>();
 
   for (const line of statusLines) {
-    const file = line.slice(3);
-    const match = relPaths.find(
-      ({ rel }) => file === rel || file.startsWith(rel + "/"),
+    const file = line.slice(3).replace(/\\/g, "/");
+    const match = links.find(
+      (l) => file === l.name || file.startsWith(l.name + "/"),
     );
     changedConfigs.add(match ? match.name : "general");
   }
@@ -677,7 +672,7 @@ function handleUpdate(
 
   // Prepare commit message
   const finalMsg =
-    commitMessage ?? buildCommitMessage(lines, links, dotfilesDir);
+    commitMessage ?? buildCommitMessage(lines, links);
 
   logInfo("Staging changes (git add)...");
   const addRes = git("add", "-A");
