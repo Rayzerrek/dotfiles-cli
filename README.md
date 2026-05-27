@@ -79,6 +79,9 @@ The CLI supports dynamic links and custom repository locations using a `config.j
 # Check the state of system links and the git repository
 dot status
 
+# Create the default configuration file
+dot init
+
 # Restore or recreate missing system links 
 dot link
 

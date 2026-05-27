@@ -2,16 +2,20 @@
 import { spawnSync } from "child_process";
 import { createHash } from "crypto";
 import {
+  closeSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   readlinkSync,
+  readSync,
   renameSync,
   symlinkSync,
   unlinkSync,
+  writeSync,
   writeFileSync,
 } from "fs";
 import { homedir } from "os";
@@ -42,6 +46,13 @@ function logWarning(msg: string): void {
 
 function logError(msg: string): void {
   console.error(`${red("✘")} ${bold("Error:")} ${msg}`);
+}
+
+function promptInput(question: string): string {
+  writeSync(process.stdout.fd, question);
+  const buffer = Buffer.alloc(1024);
+  const bytesRead = readSync(process.stdin.fd, buffer, 0, buffer.length, null);
+  return buffer.toString("utf-8", 0, bytesRead).trim();
 }
 
 function errorMessage(err: unknown): string {
@@ -332,6 +343,52 @@ function loadConfiguration(): AppConfig {
   }
 
   return { dotfilesDir, links };
+}
+
+function buildInitialConfigContent(dotfilesDir: string): string {
+  return [
+    "{",
+    '  // Created by dot init. Add entries to links, then run "dot link".',
+    `  "dotfilesDir": ${JSON.stringify(dotfilesDir)},`,
+    '  "links": []',
+    "}",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Handles the "init" command, creating the default configuration file if missing.
+ *
+ * @returns `true` when a config already exists or was created successfully; `false` otherwise.
+ */
+function handleInit(): boolean {
+  console.log(header("Initialize Dotfiles Configuration"));
+
+  const existing = findConfigFile();
+  if (existing) {
+    logInfo(`Configuration already exists at: ${existing.path}`);
+    return true;
+  }
+
+  const answer = promptInput(`Dotfiles repository directory ${gray("[~/dotfiles]")}: `);
+  const dotfilesDir = answer || "~/dotfiles";
+
+  try {
+    mkdirSync(DOT_DIR, { recursive: true });
+    const fd = openSync(DEFAULT_CONFIG_PATH, "wx");
+    try {
+      writeSync(fd, buildInitialConfigContent(dotfilesDir));
+    } finally {
+      closeSync(fd);
+    }
+  } catch (err) {
+    logError(`Failed to create config at ${DEFAULT_CONFIG_PATH}: ${errorMessage(err)}`);
+    return false;
+  }
+
+  logSuccess(`Created configuration at: ${DEFAULT_CONFIG_PATH}`);
+  logInfo("Edit links in the config, then run: dot link");
+  return true;
 }
 
 /**
@@ -731,6 +788,7 @@ ${bold("USAGE:")}
   dot <command> [options]
 
 ${bold("COMMANDS:")}
+  ${green("init")}               Create the default configuration file.
   ${green("update [message]")}  Stage, commit, and push dotfiles changes to GitHub.
                           If no commit message is provided, one will be auto-generated.
   ${green("status")}             Check the state of system links and the git repository.
@@ -750,6 +808,9 @@ function main(): void {
 
   let ok = true;
   switch (command) {
+    case "init":
+      ok = handleInit();
+      break;
     case "status":
       ok = handleStatus(config);
       break;
