@@ -15,7 +15,8 @@
     "dot": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist/**/*.js",
+    "dist/**/*.d.ts"
   ],
   "type": "module",
   "main": "dist/index.js",
