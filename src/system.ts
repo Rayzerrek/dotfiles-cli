@@ -44,9 +44,21 @@ export function runCmd(
     env: process.env,
     encoding: "utf-8",
   });
+  const stdout = proc.stdout?.trim() ?? "";
+  const stderr = proc.stderr?.trim() ?? "";
+
+  if (proc.error) {
+    return {
+      success: false,
+      stdout,
+      stderr:
+        stderr || `Failed to run "${command}": ${errorMessage(proc.error)}`,
+    };
+  }
+
   return {
     success: proc.status === 0,
-    stdout: proc.stdout?.trim() ?? "",
-    stderr: proc.stderr?.trim() ?? "",
+    stdout,
+    stderr,
   };
 }

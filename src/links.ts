@@ -1,6 +1,7 @@
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   readdirSync,
   readlinkSync,
   renameSync,
@@ -8,7 +9,7 @@ import {
   unlinkSync,
 } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 
 import { normalizePath } from "./paths.js";
 import { errorMessage, safeLstat } from "./system.js";
@@ -228,6 +229,7 @@ export function handleLink(config: AppConfig): boolean {
     // Create new symbolic link or junction natively
     logInfo(`Creating link from '${link.systemPath}' to '${link.repoPath}'...`);
     try {
+      mkdirSync(dirname(link.systemPath), { recursive: true });
       const type = process.platform === "win32" ? "junction" : "dir";
       symlinkSync(link.repoPath, link.systemPath, type);
       logSuccess(`Successfully linked ${link.name}!`);

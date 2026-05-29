@@ -44,6 +44,10 @@ function isPlatformKey(value: string): value is PlatformKey {
   return PLATFORM_KEYS.some((platformKey) => platformKey === value);
 }
 
+function isValidLinkName(name: string): boolean {
+  return !["", ".", ".."].includes(name.trim()) && !/[\\/]/.test(name);
+}
+
 function currentPlatformKey(): PlatformKey | undefined {
   switch (process.platform) {
     case "win32":
@@ -117,8 +121,10 @@ function validateLink(link: unknown, i: number): DotfileLink {
   if (!isRecord(link)) {
     throw new Error(`links[${i}] must be an object`);
   }
-  if (typeof link.name !== "string") {
-    throw new Error(`links[${i}].name must be a string`);
+  if (typeof link.name !== "string" || !isValidLinkName(link.name)) {
+    throw new Error(
+      `links[${i}].name must be a non-empty directory name without path separators or traversal`,
+    );
   }
   if (!("systemPath" in link) || !isSystemPathSpec(link.systemPath)) {
     throw new Error(
@@ -211,9 +217,12 @@ function notifyOnConfigChange(content: string, path: string): void {
  * Loads, parses, and validates the application configuration.
  * Resolves target system paths and repository paths for the current platform.
  *
- * @returns The resolved application configuration.
+ * @returns A tagged result containing either the resolved application
+ * configuration or a parse/validation error.
  */
-export function loadConfiguration(): AppConfig {
+export function loadConfiguration():
+  | { ok: true; config: AppConfig }
+  | { ok: false; error: string } {
   const found = findConfigFile();
 
   let configData: DotConfig = {};
@@ -223,9 +232,10 @@ export function loadConfiguration(): AppConfig {
       configData = validateConfig(parsed);
       notifyOnConfigChange(found.content, found.path);
     } catch (err) {
-      logError(
-        `Failed to parse config from ${found.path}: ${errorMessage(err)}`,
-      );
+      return {
+        ok: false,
+        error: `Failed to parse config from ${found.path}: ${errorMessage(err)}`,
+      };
     }
   } else {
     logWarning(
@@ -251,7 +261,7 @@ export function loadConfiguration(): AppConfig {
     });
   }
 
-  return { dotfilesDir, links };
+  return { ok: true, config: { dotfilesDir, links } };
 }
 
 /**
