@@ -55,14 +55,15 @@ export function buildCommitMessage(
   statusLines: string[],
   links: ResolvedLink[],
 ): string {
+  const configuredLinkNames = new Set(links.map((link) => link.name));
   const changedConfigs = new Set<string>();
 
   for (const line of statusLines) {
     const file = line.slice(3).replace(/\\/g, "/");
-    const match = links.find(
-      (link) => file === link.name || file.startsWith(link.name + "/"),
+    const [topLevelName] = file.split("/", 1);
+    changedConfigs.add(
+      configuredLinkNames.has(topLevelName) ? topLevelName : "general",
     );
-    changedConfigs.add(match ? match.name : "general");
   }
 
   const dateStr = new Date().toISOString().split("T")[0];
