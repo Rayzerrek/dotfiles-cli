@@ -9,7 +9,7 @@ import {
   unlinkSync,
 } from "fs";
 import { homedir } from "os";
-import { dirname, join } from "path";
+import { dirname, isAbsolute, join, resolve } from "path";
 
 import { normalizePath } from "./paths.js";
 import { errorMessage, safeLstat } from "./system.js";
@@ -22,6 +22,10 @@ import {
   logSuccess,
   logWarning,
 } from "./ui.js";
+
+function resolveLinkTarget(linkPath: string, target: string): string {
+  return isAbsolute(target) ? target : resolve(dirname(linkPath), target);
+}
 
 /**
  * Verifies whether a symbolic link or junction at the configured system path
@@ -43,7 +47,10 @@ export function checkJunction(config: ResolvedLink): LinkCheckResult {
   }
   try {
     const target = readlinkSync(config.systemPath);
-    if (normalizePath(target) === normalizePath(config.repoPath)) {
+    if (
+      normalizePath(resolveLinkTarget(config.systemPath, target)) ===
+      normalizePath(config.repoPath)
+    ) {
       return { linked: true, message: "Correct" };
     }
     return { linked: false, message: `Points to incorrect target: ${target}` };
@@ -131,7 +138,9 @@ function cleanStaleLinks({ dotfilesDir, links }: AppConfig): boolean {
         continue;
       }
 
-      if (normalizePath(target) !== normalizedRepoPath) continue;
+      if (normalizePath(resolveLinkTarget(candidate, target)) !== normalizedRepoPath) {
+        continue;
+      }
 
       try {
         // unlinkSync safely removes the link entry without risk of deleting target files.

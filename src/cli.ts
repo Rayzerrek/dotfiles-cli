@@ -2,7 +2,17 @@ import { handleInit, loadConfiguration } from "./config.js";
 import { handleUpdate } from "./git.js";
 import { handleLink } from "./links.js";
 import { handleStatus } from "./status.js";
+import type { AppConfig } from "./types.js";
 import { logError, printHelp } from "./ui.js";
+
+function runWithConfiguration(handler: (config: AppConfig) => boolean): boolean {
+  const result = loadConfiguration();
+  if (!result.ok) {
+    logError(result.error);
+    return false;
+  }
+  return handler(result.config);
+}
 
 /**
  * Dispatches the requested CLI command, loading configuration only for commands
@@ -20,34 +30,18 @@ export function main(args: string[] = process.argv.slice(2)): void {
       ok = handleInit();
       break;
     case "status": {
-      const result = loadConfiguration();
-      if (!result.ok) {
-        logError(result.error);
-        ok = false;
-        break;
-      }
-      ok = handleStatus(result.config);
+      ok = runWithConfiguration(handleStatus);
       break;
     }
     case "link": {
-      const result = loadConfiguration();
-      if (!result.ok) {
-        logError(result.error);
-        ok = false;
-        break;
-      }
-      ok = handleLink(result.config);
+      ok = runWithConfiguration(handleLink);
       break;
     }
     case "update": {
-      const result = loadConfiguration();
-      if (!result.ok) {
-        logError(result.error);
-        ok = false;
-        break;
-      }
       const msg = args.slice(1).join(" ");
-      ok = handleUpdate(result.config, msg || undefined);
+      ok = runWithConfiguration((config) =>
+        handleUpdate(config, msg || undefined),
+      );
       break;
     }
     case "help":

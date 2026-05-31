@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import test from "node:test";
 
 import { buildInitialConfigContent } from "../dist/config.js";
@@ -101,6 +101,27 @@ test("checkJunction accepts a link pointing at the configured repository path", 
   if (!createDirectorySymlinkOrSkip(t, repoPath, systemPath)) {
     return;
   }
+
+  assert.deepEqual(checkJunction({ name: "nvim", repoPath, systemPath }), {
+    linked: true,
+    message: "Correct",
+  });
+});
+
+test("checkJunction resolves relative link targets from the link location", (t) => {
+  if (process.platform === "win32") {
+    t.skip("relative directory symlink behavior differs for Windows junctions");
+    return;
+  }
+
+  const root = createTempDir(t, "dot-cli-unit-");
+  const repoPath = join(root, "repo", "nvim");
+  const systemParent = join(root, "system");
+  const systemPath = join(systemParent, "nvim");
+  mkdirSync(repoPath, { recursive: true });
+  mkdirSync(systemParent, { recursive: true });
+
+  symlinkSync(relative(systemParent, repoPath), systemPath, "dir");
 
   assert.deepEqual(checkJunction({ name: "nvim", repoPath, systemPath }), {
     linked: true,
